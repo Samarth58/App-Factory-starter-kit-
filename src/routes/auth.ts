@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { signToken } from '../auth/jwt.js';
@@ -10,6 +10,7 @@ import { error, success } from '../utils/response.js';
 const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
+  name: z.string().optional(),
 });
 
 const loginSchema = z.object({
@@ -17,10 +18,16 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-function toUserResponse(user: { id: string; email: string; createdAt: Date }) {
+function toUserResponse(user: {
+  id: string;
+  email: string;
+  name: string | null;
+  createdAt: Date;
+}) {
   return {
     id: user.id,
     email: user.email,
+    name: user.name,
     created_at: user.createdAt.toISOString(),
   };
 }
@@ -35,12 +42,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         .send(error('Invalid request body', 'VALIDATION_ERROR', 400));
     }
 
-    const { email, password } = parsed.data;
+    const { email, password, name } = parsed.data;
 
     const existing = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.email, email))
+      .where(and(eq(users.email, email), isNull(users.deletedAt)))
       .limit(1);
 
     if (existing.length > 0) {
@@ -53,10 +60,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const [user] = await db
       .insert(users)
-      .values({ email, passwordHash })
+      .values({ email, passwordHash, name: name ?? null })
       .returning({
         id: users.id,
         email: users.email,
+        name: users.name,
         createdAt: users.createdAt,
       });
 
@@ -88,11 +96,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       .select({
         id: users.id,
         email: users.email,
+        name: users.name,
         passwordHash: users.passwordHash,
         createdAt: users.createdAt,
       })
       .from(users)
-      .where(eq(users.email, email))
+      .where(and(eq(users.email, email), isNull(users.deletedAt)))
       .limit(1);
 
     if (!user) {
