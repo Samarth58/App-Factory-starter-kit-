@@ -1,0 +1,37 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --loader ts-node/esm src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx db/migrate.ts"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.44.5",
+    "fastify": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.15.5",
+    "@typescript-eslint/parser": "^8.26.1",
+    "drizzle-kit": "^0.31.4",
+    "eslint": "^8.57.1",
+    "prettier": "^3.5.3",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.2"
+  }
+}
