@@ -1,14 +1,7 @@
 import 'dotenv/config';
-import Fastify from 'fastify';
-import { authRoutes } from './routes/auth.js';
-import { healthRoutes } from './routes/health.js';
-import { usersRoutes } from './routes/users.js';
+import { buildApp } from './app.js';
 
-const app = Fastify();
-
-await app.register(healthRoutes);
-await app.register(authRoutes);
-await app.register(usersRoutes);
+const app = buildApp();
 
 const port = Number(process.env.PORT) || 3000;
 
