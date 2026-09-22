@@ -492,13 +492,37 @@ npm run test:watch
 
 ## Docker Support
 
-> [!NOTE]
-> Dockerfile and `docker-compose.yml` are not included by default in this starter kit. You can run PostgreSQL locally or connect to any remote PostgreSQL instance (such as Supabase, Neon, AWS RDS, or a local Docker container) via `DATABASE_URL`.
+The project includes a multi-stage `Dockerfile` and `docker-compose.yml` for running PostgreSQL and the backend together locally or in production.
 
-To run PostgreSQL quickly in a local Docker container:
+### Docker Commands
+
 ```bash
-docker run --name app-factory-postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=app_db -p 5432:5432 -d postgres:16-alpine
+# Build the Docker image
+docker compose build
+
+# Start services (PostgreSQL + API backend)
+docker compose up
+
+# Start services in background (detached mode)
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Run database migrations with Docker
+npm run db:migrate
+
+# Stop services
+docker compose down
+
+# Stop services and remove persistent database volume
+docker compose down -v
 ```
+
+### Docker Architecture
+
+- **PostgreSQL Service (`postgres`)**: Runs `postgres:16-alpine` on port `5432` with a persistent Docker volume (`postgres_data`) and integrated health check (`pg_isready`).
+- **App Service (`app`)**: Multi-stage Node.js 20 Alpine container exposing port `3000`, running compiled code with `npm start`, and validating environment variables at startup. Includes automated container health check against `/health`.
 
 ---
 
