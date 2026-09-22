@@ -55,6 +55,12 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
 
     const { id } = parsedId.data;
 
+    if (request.userId !== id) {
+      return reply.status(401).send(
+        error('Unauthorized', 'UNAUTHORIZED', 401),
+      );
+    }
+
     const [user] = await db
       .select(userSelect)
       .from(users)
@@ -79,6 +85,14 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
         .send(error('Invalid user id', 'VALIDATION_ERROR', 400));
     }
 
+    const { id } = parsedId.data;
+
+    if (request.userId !== id) {
+      return reply.status(401).send(
+        error('Unauthorized', 'UNAUTHORIZED', 401),
+      );
+    }
+
     const parsedBody = updateUserSchema.safeParse(request.body);
 
     if (!parsedBody.success) {
@@ -87,7 +101,6 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
         .send(error('Invalid request body', 'VALIDATION_ERROR', 400));
     }
 
-    const { id } = parsedId.data;
     const { name, email } = parsedBody.data;
 
     const [existing] = await db
@@ -153,6 +166,12 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { id } = parsedId.data;
+
+    if (request.userId !== id) {
+      return reply.status(401).send(
+        error('Unauthorized', 'UNAUTHORIZED', 401),
+      );
+    }
 
     const [deleted] = await db
       .update(users)

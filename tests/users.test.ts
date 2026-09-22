@@ -84,8 +84,25 @@ describe('GET /users/:id', () => {
       .get(`/users/${missingId}`)
       .set('Authorization', `Bearer ${token}`);
 
-    expect(res.status).toBe(404);
-    expect(res.body).toHaveProperty('code', 'USER_NOT_FOUND');
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('status', 'error');
+    expect(res.body).toHaveProperty('code', 'UNAUTHORIZED');
+  });
+
+  it('returns 401 when accessing another user\'s ID', async () => {
+    const userA = await registerUser('User A');
+    const userB = await registerUser('User B');
+
+    const res = await request(app.server)
+      .get(`/users/${userB.user.id}`)
+      .set('Authorization', `Bearer ${userA.token}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('status', 'error');
+    expect(res.body).toHaveProperty('message', 'Unauthorized');
+    expect(res.body).toHaveProperty('code', 'UNAUTHORIZED');
+    expect(res.body).not.toHaveProperty('data');
+    expect(JSON.stringify(res.body)).not.toContain(userB.email);
   });
 
   it('returns USER_NOT_FOUND for a soft-deleted user', async () => {
@@ -190,6 +207,29 @@ describe('PUT /users/:id', () => {
     expect(res.body).toHaveProperty('code', 'EMAIL_EXISTS');
   });
 
+  it('returns 401 when updating another user', async () => {
+    const userA = await registerUser('User A');
+    const userB = await registerUser('User B');
+
+    const res = await request(app.server)
+      .put(`/users/${userB.user.id}`)
+      .set('Authorization', `Bearer ${userA.token}`)
+      .send({ name: 'Hacked Name' });
+
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('status', 'error');
+    expect(res.body).toHaveProperty('message', 'Unauthorized');
+    expect(res.body).toHaveProperty('code', 'UNAUTHORIZED');
+
+    const unchanged = await request(app.server)
+      .get(`/users/${userB.user.id}`)
+      .set('Authorization', `Bearer ${userB.token}`);
+
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body.data).toHaveProperty('name', 'User B');
+    expect(unchanged.body.data).toHaveProperty('email', userB.email);
+  });
+
   it('does not update a soft-deleted user', async () => {
     const { user, token } = await registerUser();
 
@@ -243,6 +283,27 @@ describe('DELETE /users/:id', () => {
 
     expect(second.status).toBe(404);
     expect(second.body).toHaveProperty('code', 'USER_NOT_FOUND');
+  });
+
+  it('returns 401 when deleting another user', async () => {
+    const userA = await registerUser('User A');
+    const userB = await registerUser('User B');
+
+    const res = await request(app.server)
+      .delete(`/users/${userB.user.id}`)
+      .set('Authorization', `Bearer ${userA.token}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body).toHaveProperty('status', 'error');
+    expect(res.body).toHaveProperty('message', 'Unauthorized');
+    expect(res.body).toHaveProperty('code', 'UNAUTHORIZED');
+
+    const stillExists = await request(app.server)
+      .get(`/users/${userB.user.id}`)
+      .set('Authorization', `Bearer ${userB.token}`);
+
+    expect(stillExists.status).toBe(200);
+    expect(stillExists.body.data).toHaveProperty('id', userB.user.id);
   });
 
   it('rejects delete without Authorization', async () => {
