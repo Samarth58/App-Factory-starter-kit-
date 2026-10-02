@@ -5,7 +5,7 @@ import { signToken } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { db } from '../db/connection.js';
 import { users } from '../db/schema.js';
-import { error, success } from '../utils/response.js';
+import { fail, ok } from '../utils/response.js';
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -39,7 +39,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply
         .status(400)
-        .send(error('Invalid request body', 'VALIDATION_ERROR', 400));
+        .send(fail('VALIDATION_ERROR', 'Invalid request body', parsed.error.issues));
     }
 
     const { email, password, name } = parsed.data;
@@ -53,7 +53,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (existing.length > 0) {
       return reply
         .status(409)
-        .send(error('Email already registered', 'EMAIL_EXISTS', 409));
+        .send(fail('CONFLICT', 'Email already registered', []));
     }
 
     const passwordHash = await hashPassword(password);
@@ -71,13 +71,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const token = signToken(user.id);
 
     return reply.status(201).send(
-      success(
-        {
-          user: toUserResponse(user),
-          token,
-        },
-        201,
-      ),
+      ok({
+        user: toUserResponse(user),
+        token,
+      }),
     );
   });
 
@@ -87,7 +84,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       return reply
         .status(400)
-        .send(error('Invalid request body', 'VALIDATION_ERROR', 400));
+        .send(fail('VALIDATION_ERROR', 'Invalid request body', parsed.error.issues));
     }
 
     const { email, password } = parsed.data;
@@ -107,7 +104,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user) {
       return reply
         .status(401)
-        .send(error('Invalid email or password', 'INVALID_CREDENTIALS', 401));
+        .send(fail('UNAUTHORIZED', 'Invalid email or password', []));
     }
 
     const isValid = await verifyPassword(user.passwordHash, password);
@@ -115,19 +112,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!isValid) {
       return reply
         .status(401)
-        .send(error('Invalid email or password', 'INVALID_CREDENTIALS', 401));
+        .send(fail('UNAUTHORIZED', 'Invalid email or password', []));
     }
 
     const token = signToken(user.id);
 
     return reply.status(200).send(
-      success(
-        {
-          user: toUserResponse(user),
-          token,
-        },
-        200,
-      ),
+      ok({
+        user: toUserResponse(user),
+        token,
+      }),
     );
   });
 }

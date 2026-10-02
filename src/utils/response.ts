@@ -1,38 +1,42 @@
 export type SuccessResponse<T> = {
-  status: 'success';
+  success: true;
   data: T;
-  timestamp: string;
+  meta?: Record<string, unknown>;
 };
 
 export type ErrorResponse = {
-  status: 'error';
-  message: string;
-  code: string;
-  timestamp: string;
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    details: unknown[];
+  };
 };
 
-export function success<T>(
-  data: T,
-  statusCode: number = 200,
-): SuccessResponse<T> {
-  void statusCode;
-  return {
-    status: 'success',
+export function ok<T>(data: T, meta?: Record<string, unknown>): SuccessResponse<T> {
+  const response: SuccessResponse<T> = {
+    success: true,
     data,
-    timestamp: new Date().toISOString(),
   };
+
+  if (meta !== undefined) {
+    response.meta = meta;
+  }
+
+  return response;
 }
 
-export function error(
-  message: string,
+export function fail(
   code: string,
-  statusCode: number = 400,
+  message: string,
+  details: unknown[] = [],
 ): ErrorResponse {
-  void statusCode;
   return {
-    status: 'error',
-    message,
-    code,
-    timestamp: new Date().toISOString(),
+    success: false,
+    error: {
+      code,
+      message,
+      details,
+    },
   };
 }

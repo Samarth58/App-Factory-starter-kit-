@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { authGuard } from '../middleware/authGuard.js';
 import { db } from '../db/connection.js';
 import { users } from '../db/schema.js';
-import { error, success } from '../utils/response.js';
+import { fail, ok } from '../utils/response.js';
 
 const idParamSchema = z.object({
   id: z.string().uuid(),
@@ -50,15 +50,13 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!parsedId.success) {
       return reply
         .status(400)
-        .send(error('Invalid user id', 'VALIDATION_ERROR', 400));
+        .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
     }
 
     const { id } = parsedId.data;
 
     if (request.userId !== id) {
-      return reply.status(401).send(
-        error('Unauthorized', 'UNAUTHORIZED', 401),
-      );
+      return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
     }
 
     const [user] = await db
@@ -70,10 +68,10 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!user) {
       return reply
         .status(404)
-        .send(error('User not found', 'USER_NOT_FOUND', 404));
+        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
     }
 
-    return reply.status(200).send(success(toUserResponse(user), 200));
+    return reply.status(200).send(ok(toUserResponse(user)));
   });
 
   app.put('/users/:id', async (request, reply) => {
@@ -82,15 +80,13 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!parsedId.success) {
       return reply
         .status(400)
-        .send(error('Invalid user id', 'VALIDATION_ERROR', 400));
+        .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
     }
 
     const { id } = parsedId.data;
 
     if (request.userId !== id) {
-      return reply.status(401).send(
-        error('Unauthorized', 'UNAUTHORIZED', 401),
-      );
+      return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
     }
 
     const parsedBody = updateUserSchema.safeParse(request.body);
@@ -98,7 +94,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!parsedBody.success) {
       return reply
         .status(400)
-        .send(error('Invalid request body', 'VALIDATION_ERROR', 400));
+        .send(fail('VALIDATION_ERROR', 'Invalid request body', parsedBody.error.issues));
     }
 
     const { name, email } = parsedBody.data;
@@ -112,7 +108,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!existing) {
       return reply
         .status(404)
-        .send(error('User not found', 'USER_NOT_FOUND', 404));
+        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
     }
 
     if (email !== undefined) {
@@ -127,7 +123,7 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
       if (duplicate) {
         return reply
           .status(409)
-          .send(error('Email already registered', 'EMAIL_EXISTS', 409));
+          .send(fail('CONFLICT', 'Email already registered', []));
       }
     }
 
@@ -150,10 +146,10 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!updated) {
       return reply
         .status(404)
-        .send(error('User not found', 'USER_NOT_FOUND', 404));
+        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
     }
 
-    return reply.status(200).send(success({ user: toUserResponse(updated) }, 200));
+    return reply.status(200).send(ok({ user: toUserResponse(updated) }));
   });
 
   app.delete('/users/:id', async (request, reply) => {
@@ -162,15 +158,13 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!parsedId.success) {
       return reply
         .status(400)
-        .send(error('Invalid user id', 'VALIDATION_ERROR', 400));
+        .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
     }
 
     const { id } = parsedId.data;
 
     if (request.userId !== id) {
-      return reply.status(401).send(
-        error('Unauthorized', 'UNAUTHORIZED', 401),
-      );
+      return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
     }
 
     const [deleted] = await db
@@ -182,9 +176,9 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
     if (!deleted) {
       return reply
         .status(404)
-        .send(error('User not found', 'USER_NOT_FOUND', 404));
+        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
     }
 
-    return reply.status(200).send(success({ success: true }, 200));
+    return reply.status(200).send(ok({ success: true }));
   });
 }

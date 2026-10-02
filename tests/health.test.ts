@@ -1,27 +1,47 @@
-import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { pool } from '../src/db/connection.js';
 
-const app = buildApp();
-
-beforeAll(async () => {
-  await app.ready();
-});
-
-afterAll(async () => {
-  await app.close();
-  await pool.end();
-});
-
 describe('GET /health', () => {
-  it('returns a successful health payload', async () => {
-    const res = await request(app.server).get('/health');
+  it('returns 200 with status ok when database is healthy', async () => {
+    const app = buildApp();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+    });
 
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('status', 'success');
-    expect(res.body).toHaveProperty('data');
-    expect(res.body.data).toHaveProperty('health', 'ok');
-    expect(res.body).toHaveProperty('timestamp');
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toEqual({
+      success: true,
+      data: {
+        status: 'ok',
+      },
+    });
+  });
+
+  it('returns 503 SERVICE_UNAVAILABLE when database query fails', async () => {
+    const app = buildApp();
+    const querySpy = vi
+      .spyOn(pool, 'query')
+      .mockRejectedValueOnce(new Error('Connection failure'));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+    });
+
+    querySpy.mockRestore();
+
+    expect(res.statusCode).toBe(503);
+    const body = res.json();
+    expect(body).toEqual({
+      success: false,
+      error: {
+        code: 'SERVICE_UNAVAILABLE',
+        message: 'Service Unavailable',
+        details: [],
+      },
+    });
   });
 });
