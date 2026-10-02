@@ -48,144 +48,177 @@ const userSelect = {
 export async function usersRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authGuard);
 
-  app.get('/users/:id', async (request, reply) => {
-    const parsedId = idParamSchema.safeParse(request.params);
+  app.get(
+    '/users/:id',
+    {
+      schema: {
+        tags: ['Users'],
+        summary: 'Get user by ID',
+        description: 'Retrieves user details for the authenticated user.',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const parsedId = idParamSchema.safeParse(request.params);
 
-    if (!parsedId.success) {
-      return reply
-        .status(400)
-        .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
-    }
+      if (!parsedId.success) {
+        return reply
+          .status(400)
+          .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
+      }
 
-    const { id } = parsedId.data;
+      const { id } = parsedId.data;
 
-    if (request.userId !== id) {
-      return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
-    }
+      if (request.userId !== id) {
+        return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
+      }
 
-    const [user] = await db
-      .select(userSelect)
-      .from(users)
-      .where(and(eq(users.id, id), isNull(users.deletedAt)))
-      .limit(1);
-
-    if (!user) {
-      return reply
-        .status(404)
-        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
-    }
-
-    return reply.status(200).send(ok(toUserResponse(user)));
-  });
-
-  app.put('/users/:id', async (request, reply) => {
-    const parsedId = idParamSchema.safeParse(request.params);
-
-    if (!parsedId.success) {
-      return reply
-        .status(400)
-        .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
-    }
-
-    const { id } = parsedId.data;
-
-    if (request.userId !== id) {
-      return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
-    }
-
-    const parsedBody = updateUserSchema.safeParse(request.body);
-
-    if (!parsedBody.success) {
-      return reply
-        .status(400)
-        .send(fail('VALIDATION_ERROR', 'Invalid request body', parsedBody.error.issues));
-    }
-
-    const { name, email } = parsedBody.data;
-
-    const [existing] = await db
-      .select(userSelect)
-      .from(users)
-      .where(and(eq(users.id, id), isNull(users.deletedAt)))
-      .limit(1);
-
-    if (!existing) {
-      return reply
-        .status(404)
-        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
-    }
-
-    if (email !== undefined) {
-      const [duplicate] = await db
-        .select({ id: users.id })
+      const [user] = await db
+        .select(userSelect)
         .from(users)
-        .where(
-          and(eq(users.email, email), isNull(users.deletedAt), ne(users.id, id)),
-        )
+        .where(and(eq(users.id, id), isNull(users.deletedAt)))
         .limit(1);
 
-      if (duplicate) {
+      if (!user) {
         return reply
-          .status(409)
-          .send(fail('CONFLICT', 'Email already registered', []));
+          .status(404)
+          .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
       }
-    }
 
-    const updates: { name?: string | null; email?: string } = {};
+      return reply.status(200).send(ok(toUserResponse(user)));
+    },
+  );
 
-    if (name !== undefined) {
-      updates.name = name;
-    }
+  app.put(
+    '/users/:id',
+    {
+      schema: {
+        tags: ['Users'],
+        summary: 'Update user profile',
+        description: 'Updates profile fields (name, email) for the authenticated user.',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const parsedId = idParamSchema.safeParse(request.params);
 
-    if (email !== undefined) {
-      updates.email = email;
-    }
+      if (!parsedId.success) {
+        return reply
+          .status(400)
+          .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
+      }
 
-    const [updated] = await db
-      .update(users)
-      .set(updates)
-      .where(and(eq(users.id, id), isNull(users.deletedAt)))
-      .returning(userSelect);
+      const { id } = parsedId.data;
 
-    if (!updated) {
-      return reply
-        .status(404)
-        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
-    }
+      if (request.userId !== id) {
+        return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
+      }
 
-    return reply.status(200).send(ok({ user: toUserResponse(updated) }));
-  });
+      const parsedBody = updateUserSchema.safeParse(request.body);
 
-  app.delete('/users/:id', async (request, reply) => {
-    const parsedId = idParamSchema.safeParse(request.params);
+      if (!parsedBody.success) {
+        return reply
+          .status(400)
+          .send(fail('VALIDATION_ERROR', 'Invalid request body', parsedBody.error.issues));
+      }
 
-    if (!parsedId.success) {
-      return reply
-        .status(400)
-        .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
-    }
+      const { name, email } = parsedBody.data;
 
-    const { id } = parsedId.data;
+      const [existing] = await db
+        .select(userSelect)
+        .from(users)
+        .where(and(eq(users.id, id), isNull(users.deletedAt)))
+        .limit(1);
 
-    if (request.userId !== id) {
-      return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
-    }
+      if (!existing) {
+        return reply
+          .status(404)
+          .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
+      }
 
-    const [deleted] = await db
-      .update(users)
-      .set({ deletedAt: sql`now()` })
-      .where(and(eq(users.id, id), isNull(users.deletedAt)))
-      .returning({ id: users.id });
+      if (email !== undefined) {
+        const [duplicate] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(
+            and(eq(users.email, email), isNull(users.deletedAt), ne(users.id, id)),
+          )
+          .limit(1);
 
-    if (!deleted) {
-      return reply
-        .status(404)
-        .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
-    }
+        if (duplicate) {
+          return reply
+            .status(409)
+            .send(fail('CONFLICT', 'Email already registered', []));
+        }
+      }
 
-    // Revoke all sessions for self-deleted user
-    await revokeAllSessionsForUser(id);
+      const updates: { name?: string | null; email?: string } = {};
 
-    return reply.status(200).send(ok({ success: true }));
-  });
+      if (name !== undefined) {
+        updates.name = name;
+      }
+
+      if (email !== undefined) {
+        updates.email = email;
+      }
+
+      const [updated] = await db
+        .update(users)
+        .set(updates)
+        .where(and(eq(users.id, id), isNull(users.deletedAt)))
+        .returning(userSelect);
+
+      if (!updated) {
+        return reply
+          .status(404)
+          .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
+      }
+
+      return reply.status(200).send(ok({ user: toUserResponse(updated) }));
+    },
+  );
+
+  app.delete(
+    '/users/:id',
+    {
+      schema: {
+        tags: ['Users'],
+        summary: 'Delete user account',
+        description: 'Soft-deletes the user account and revokes all active sessions.',
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    async (request, reply) => {
+      const parsedId = idParamSchema.safeParse(request.params);
+
+      if (!parsedId.success) {
+        return reply
+          .status(400)
+          .send(fail('VALIDATION_ERROR', 'Invalid user id', parsedId.error.issues));
+      }
+
+      const { id } = parsedId.data;
+
+      if (request.userId !== id) {
+        return reply.status(401).send(fail('UNAUTHORIZED', 'Unauthorized', []));
+      }
+
+      const [deleted] = await db
+        .update(users)
+        .set({ deletedAt: sql`now()` })
+        .where(and(eq(users.id, id), isNull(users.deletedAt)))
+        .returning({ id: users.id });
+
+      if (!deleted) {
+        return reply
+          .status(404)
+          .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
+      }
+
+      // Revoke all sessions for self-deleted user
+      await revokeAllSessionsForUser(id);
+
+      return reply.status(200).send(ok({ success: true }));
+    },
+  );
 }

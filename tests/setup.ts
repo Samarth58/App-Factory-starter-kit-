@@ -19,10 +19,5 @@ beforeEach(async () => {
     safetyCheckPassed = true;
   }
   // Truncate only explicit application tables (NEVER drizzle migrations table)
-  await pool.query('TRUNCATE TABLE user_sessions, users RESTART IDENTITY CASCADE;');
-});
-
-afterAll(async () => {
-  // Drain worker connection pool cleanly
-  await pool.end();
+  await pool.query('TRUNCATE TABLE examples, user_sessions, users RESTART IDENTITY CASCADE;');
 });

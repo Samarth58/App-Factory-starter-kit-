@@ -16,10 +16,14 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/swagger": "^9.9.1",
+    "@fastify/swagger-ui": "^6.1.1",
     "argon2": "^0.41.1",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.5",
     "fastify": "^5.2.1",
+    "fastify-plugin": "^6.0.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.3",
     "zod": "^3.24.2"
@@ -34,7 +38,7 @@
     "prettier": "^3.5.3",
     "ts-node": "^10.9.2",
     "tsx": "^4.20.5",
-    "vitest": "^3.2.4",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
   }
 }

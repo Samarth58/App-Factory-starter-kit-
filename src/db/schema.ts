@@ -45,3 +45,26 @@ export const userSessions = pgTable(
     uniqueIndex('user_sessions_jti_hash_unique').on(table.jtiHash),
   ],
 );
+
+export const examples = pgTable(
+  'examples',
+  {
+    id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('examples_user_id_idx').on(table.userId),
+    index('examples_created_at_idx').on(table.createdAt),
+  ],
+);

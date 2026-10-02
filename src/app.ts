@@ -3,10 +3,13 @@ import type { FastifyError, FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
+import { registerRateLimiter, type RateLimiterOptions } from './plugins/rateLimiter.js';
+import { registerSwagger } from './plugins/swagger.js';
 import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { usersRoutes } from './routes/users.js';
+import { exampleRoutes } from './modules/example/index.js';
 import { fail } from './utils/response.js';
 
 export const ERROR_CODES = {
@@ -22,7 +25,11 @@ export const ERROR_CODES = {
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
-export function buildApp(): FastifyInstance {
+export interface AppOptions {
+  rateLimit?: RateLimiterOptions;
+}
+
+export function buildApp(options?: AppOptions): FastifyInstance {
   const app = Fastify({
     logger:
       env.NODE_ENV === 'test'
@@ -115,10 +122,13 @@ export function buildApp(): FastifyInstance {
       .send(fail('RESOURCE_NOT_FOUND', 'Route not found', []));
   });
 
+  app.register(registerRateLimiter, options?.rateLimit || {});
+  app.register(registerSwagger);
   app.register(healthRoutes);
   app.register(authRoutes);
   app.register(usersRoutes);
   app.register(adminRoutes);
+  app.register(exampleRoutes);
 
   return app;
 }
