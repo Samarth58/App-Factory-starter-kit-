@@ -1,8 +1,13 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { signToken } from '../auth/jwt.js';
+import { signAccessToken } from '../auth/jwt.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
+import {
+  createSession,
+  revokeSession,
+  rotateSession,
+} from '../auth/sessionService.js';
 import { db } from '../db/connection.js';
 import { users } from '../db/schema.js';
 import { fail, ok } from '../utils/response.js';
@@ -18,16 +23,22 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
+const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
 function toUserResponse(user: {
   id: string;
   email: string;
   name: string | null;
+  role: 'user' | 'admin';
   createdAt: Date;
 }) {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
+    role: user.role,
     created_at: user.createdAt.toISOString(),
   };
 }
@@ -60,20 +71,23 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const [user] = await db
       .insert(users)
-      .values({ email, passwordHash, name: name ?? null })
+      .values({ email, passwordHash, name: name ?? null, role: 'user' })
       .returning({
         id: users.id,
         email: users.email,
         name: users.name,
+        role: users.role,
         createdAt: users.createdAt,
       });
 
-    const token = signToken(user.id);
+    const token = signAccessToken(user.id);
+    const { refreshToken } = await createSession(user.id);
 
     return reply.status(201).send(
       ok({
         user: toUserResponse(user),
         token,
+        refreshToken,
       }),
     );
   });
@@ -94,6 +108,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         id: users.id,
         email: users.email,
         name: users.name,
+        role: users.role,
         passwordHash: users.passwordHash,
         createdAt: users.createdAt,
       })
@@ -115,13 +130,49 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         .send(fail('UNAUTHORIZED', 'Invalid email or password', []));
     }
 
-    const token = signToken(user.id);
+    const token = signAccessToken(user.id);
+    const { refreshToken } = await createSession(user.id);
 
     return reply.status(200).send(
       ok({
         user: toUserResponse(user),
         token,
+        refreshToken,
       }),
     );
+  });
+
+  app.post('/refresh', async (request, reply) => {
+    const parsed = refreshTokenSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send(fail('VALIDATION_ERROR', 'Invalid request body', parsed.error.issues));
+    }
+
+    const result = await rotateSession(parsed.data.refreshToken);
+
+    return reply.status(200).send(
+      ok({
+        token: result.accessToken,
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+      }),
+    );
+  });
+
+  app.post('/logout', async (request, reply) => {
+    const parsed = refreshTokenSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send(fail('VALIDATION_ERROR', 'Invalid request body', parsed.error.issues));
+    }
+
+    await revokeSession(parsed.data.refreshToken);
+
+    return reply.status(200).send(ok({ success: true }));
   });
 }

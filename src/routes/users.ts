@@ -1,6 +1,7 @@
 import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { revokeAllSessionsForUser } from '../auth/sessionService.js';
 import { authGuard } from '../middleware/authGuard.js';
 import { db } from '../db/connection.js';
 import { users } from '../db/schema.js';
@@ -24,12 +25,14 @@ function toUserResponse(user: {
   id: string;
   email: string;
   name: string | null;
+  role: 'user' | 'admin';
   createdAt: Date;
 }) {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
+    role: user.role,
     created_at: user.createdAt.toISOString(),
   };
 }
@@ -38,6 +41,7 @@ const userSelect = {
   id: users.id,
   email: users.email,
   name: users.name,
+  role: users.role,
   createdAt: users.createdAt,
 };
 
@@ -178,6 +182,9 @@ export async function usersRoutes(app: FastifyInstance): Promise<void> {
         .status(404)
         .send(fail('RESOURCE_NOT_FOUND', 'User not found', []));
     }
+
+    // Revoke all sessions for self-deleted user
+    await revokeAllSessionsForUser(id);
 
     return reply.status(200).send(ok({ success: true }));
   });

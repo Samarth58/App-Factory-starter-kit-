@@ -3,6 +3,7 @@ import type { FastifyError, FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
+import { adminRoutes } from './routes/admin.js';
 import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { usersRoutes } from './routes/users.js';
@@ -117,6 +118,7 @@ export function buildApp(): FastifyInstance {
   app.register(healthRoutes);
   app.register(authRoutes);
   app.register(usersRoutes);
+  app.register(adminRoutes);
 
   return app;
 }

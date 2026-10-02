@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
-import { verifyToken } from '../auth/jwt.js';
+import { verifyAccessToken } from '../auth/jwt.js';
 import { db } from '../db/connection.js';
 import { users } from '../db/schema.js';
 
@@ -24,7 +24,7 @@ export async function authGuard(
   const token = authorization.slice('Bearer '.length);
 
   try {
-    const payload = verifyToken(token);
+    const payload = verifyAccessToken(token);
     request.userId = payload.userId;
   } catch {
     unauthorized();
