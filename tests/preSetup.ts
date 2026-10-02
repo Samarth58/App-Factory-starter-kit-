@@ -1,5 +1,8 @@
 import 'dotenv/config';
 import { validateTestDatabaseUrl } from './helpers/dbGuard.js';
+import { initDnsFallback } from './helpers/dnsFallback.js';
+
+initDnsFallback();
 
 const mainUrl = process.env.DATABASE_URL;
 const testUrl = process.env.TEST_DATABASE_URL;

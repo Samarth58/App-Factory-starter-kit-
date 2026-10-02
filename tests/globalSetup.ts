@@ -6,6 +6,9 @@ import {
   validateTestDatabaseUrl,
   verifyTestDatabaseConnection,
 } from './helpers/dbGuard.js';
+import { initDnsFallback } from './helpers/dnsFallback.js';
+
+initDnsFallback();
 
 export async function setup() {
   const mainUrl = process.env.DATABASE_URL;

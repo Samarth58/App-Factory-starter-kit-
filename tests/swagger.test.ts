@@ -1,3 +1,5 @@
+import '@fastify/swagger';
+import type { OpenAPIV3 } from 'openapi-types';
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 
@@ -6,7 +8,7 @@ describe('OpenAPI / Swagger Documentation', () => {
     const app = buildApp();
     await app.ready();
 
-    const openapi = app.swagger();
+    const openapi = app.swagger() as OpenAPIV3.Document;
     expect(openapi).toBeDefined();
     expect(openapi.openapi).toMatch(/^3\./);
     expect(openapi.info.title).toBe('App Factory Backend Starter Kit');
@@ -46,7 +48,7 @@ describe('OpenAPI / Swagger Documentation', () => {
     const app = buildApp();
     await app.ready();
 
-    const openapi = app.swagger();
+    const openapi = app.swagger() as OpenAPIV3.Document;
     expect(openapi.components?.securitySchemes).toBeDefined();
     expect(openapi.components?.securitySchemes?.bearerAuth).toEqual({
       type: 'http',
@@ -60,7 +62,7 @@ describe('OpenAPI / Swagger Documentation', () => {
     const app = buildApp();
     await app.ready();
 
-    const openapi = app.swagger();
+    const openapi = app.swagger() as OpenAPIV3.Document;
     expect(openapi.paths?.['/health']).toBeDefined();
     expect(openapi.paths?.['/health']?.get).toBeDefined();
     expect(openapi.paths?.['/health']?.get?.tags).toContain('Health');
@@ -70,7 +72,7 @@ describe('OpenAPI / Swagger Documentation', () => {
     const app = buildApp();
     await app.ready();
 
-    const openapi = app.swagger();
+    const openapi = app.swagger() as OpenAPIV3.Document;
     const paths = openapi.paths || {};
 
     expect(paths['/register']?.post).toBeDefined();
@@ -90,7 +92,7 @@ describe('OpenAPI / Swagger Documentation', () => {
     const app = buildApp();
     await app.ready();
 
-    const openapi = app.swagger();
+    const openapi = app.swagger() as OpenAPIV3.Document;
     const paths = openapi.paths || {};
 
     // User endpoints
@@ -116,7 +118,7 @@ describe('OpenAPI / Swagger Documentation', () => {
     const app = buildApp();
     await app.ready();
 
-    const openapi = app.swagger();
+    const openapi = app.swagger() as OpenAPIV3.Document;
     const paths = openapi.paths || {};
 
     expect(paths['/examples']?.post).toBeDefined();
