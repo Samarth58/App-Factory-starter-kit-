@@ -6,7 +6,8 @@ import { env } from '../config/env.js';
 export interface RateLimiterOptions {
   max?: number;
   timeWindow?: number | string;
-  allowList?: string[] | ((req: FastifyRequest) => boolean);
+  allowList?: string[] | ((req: FastifyRequest, key: string) => boolean | Promise<boolean>);
+  keyGenerator?: (req: FastifyRequest) => string;
 }
 
 const rateLimiterPlugin: FastifyPluginAsync<RateLimiterOptions> = async (
@@ -18,6 +19,7 @@ const rateLimiterPlugin: FastifyPluginAsync<RateLimiterOptions> = async (
     max: opts?.max ?? env.RATE_LIMIT_MAX,
     timeWindow: opts?.timeWindow ?? env.RATE_LIMIT_WINDOW_MS,
     allowList: opts?.allowList,
+    keyGenerator: opts?.keyGenerator,
     addHeaders: {
       'x-ratelimit-limit': true,
       'x-ratelimit-remaining': true,

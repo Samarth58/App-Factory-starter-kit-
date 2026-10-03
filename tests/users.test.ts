@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
+import { uniqueTestIp } from './helpers/testIp.js';
 
 const app = buildApp();
 const password = 'password123';
@@ -12,6 +13,7 @@ async function registerUser(name?: string) {
   const res = await app.inject({
     method: 'POST',
     url: '/register',
+    remoteAddress: uniqueTestIp(),
     payload: { email, password, ...(name !== undefined ? { name } : {}) },
   });
 
@@ -490,6 +492,7 @@ describe('DELETE /users/:id', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/register',
+      remoteAddress: uniqueTestIp(),
       payload: { email, password },
     });
 
