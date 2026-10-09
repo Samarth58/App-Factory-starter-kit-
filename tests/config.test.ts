@@ -24,6 +24,23 @@ describe('Environment Configuration', () => {
 
     expect(configWithDefaults.NODE_ENV).toBe('development');
     expect(configWithDefaults.PORT).toBe(3000);
+    expect(configWithDefaults.CORS_ENABLED).toBe(true);
+    expect(configWithDefaults.CORS_ORIGIN).toContain('http://localhost:3000');
+    expect(configWithDefaults.CORS_CREDENTIALS).toBe(true);
+  });
+
+  it('correctly parses CORS boolean and origin flags', () => {
+    const disabledCorsConfig = validateEnv({
+      DATABASE_URL: 'postgresql://postgres:password@localhost:5432/app_db',
+      JWT_SECRET: 'test-secret-key-12345',
+      CORS_ENABLED: 'false',
+      CORS_ORIGIN: 'https://mycustomapp.com,https://api.mycustomapp.com',
+      CORS_CREDENTIALS: 'false',
+    });
+
+    expect(disabledCorsConfig.CORS_ENABLED).toBe(false);
+    expect(disabledCorsConfig.CORS_ORIGIN).toBe('https://mycustomapp.com,https://api.mycustomapp.com');
+    expect(disabledCorsConfig.CORS_CREDENTIALS).toBe(false);
   });
 
   it('rejects missing required environment variables', () => {

@@ -18,6 +18,8 @@ The **App Factory Backend Starter Kit** provides a battle-tested architecture fe
 - **Authorization & RBAC**: Role-Based Access Control (`user` and `admin` roles, `authGuard`, `adminGuard`, IDOR ownership checks)
 - **API Documentation**: OpenAPI 3.0.3 specification and interactive UI via `@fastify/swagger` `v9.9.1` and `@fastify/swagger-ui` `v6.1.1` mounted at `/docs` and `/docs/json`
 - **Rate Limiting**: Centralized and route-level rate limiting via `@fastify/rate-limit` `v11.2.0`
+- **Security Headers**: Centralized HTTP security headers via `@fastify/helmet` (safe defaults for APIs, cross-origin web/mobile apps, and Swagger UI)
+- **CORS Support**: Configurable cross-origin resource sharing via `@fastify/cors` with multi-origin lists, credentials support, and zero-overhead disable toggle for native mobile (Expo/React Native)
 - **Domain Architecture**: Canonical modular domain structure demonstrated by `src/modules/example/`
 - **Testing**: [Vitest](https://vitest.dev/) `v3.2.4` with multi-layer test database isolation safety guards
 
@@ -207,6 +209,9 @@ Startup environment variables are parsed and strictly validated using Zod in `sr
 | `NODE_ENV` | No | `development` | `development`, `test`, `production` | Application runtime environment |
 | `RATE_LIMIT_MAX` | No | `100` | Positive integer | Global max requests per IP within the time window |
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Positive integer (ms) | Global rate limiting window duration in milliseconds (default: 1 min) |
+| `CORS_ENABLED` | No | `true` | `true`, `false`, `1`, `0` | Enable or disable CORS headers entirely (set to `false` for native mobile-only projects) |
+| `CORS_ORIGIN` | No | `http://localhost:3000,http://localhost:5173,http://localhost:8081,http://localhost:19006` | Comma-separated URLs | Explicitly allowed web client origins (React web, Vite, Expo web) |
+| `CORS_CREDENTIALS` | No | `true` | `true`, `false`, `1`, `0` | Allow credentials in CORS requests (`Access-Control-Allow-Credentials`) |
 | `TEST_DATABASE_URL` | **Yes (for tests)** | — | `postgresql://.../app_test_db` | Dedicated test database URL. Must contain `'test'` in database name |
 
 ### Example Configuration (`.env.example`)
@@ -222,6 +227,13 @@ TEST_DATABASE_URL=postgresql://postgres:password@localhost:5432/app_test_db
 # Optional Rate Limit Overrides
 RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW_MS=60000
+
+# CORS Configuration
+# Set to 'false' to disable CORS completely (for native mobile-only apps)
+CORS_ENABLED=true
+# Comma-separated list of allowed origins
+CORS_ORIGIN=http://localhost:3000,http://localhost:5173,http://localhost:8081,http://localhost:19006
+CORS_CREDENTIALS=true
 ```
 
 > [!NOTE]
@@ -276,12 +288,14 @@ RATE_LIMIT_WINDOW_MS=60000
 │   │       ├── exampleService.ts
 │   │       └── index.ts
 │   ├── plugins/
+│   │   ├── cors.ts               # Centralized @fastify/cors plugin with multi-origin and mobile support
+│   │   ├── helmet.ts             # Centralized @fastify/helmet security headers plugin
 │   │   ├── rateLimiter.ts        # Centralized @fastify/rate-limit plugin configuration
 │   │   └── swagger.ts            # Centralized @fastify/swagger and OpenAPI UI plugin
 │   ├── routes/
 │   │   ├── admin.ts              # Administrative user management & role control routes
 │   │   ├── auth.ts               # POST /register, /login, /refresh, /logout
-│   │   ├── health.ts             # GET /health
+│   │   ├── health.ts             # GET /health, /health/live, /health/ready
 │   │   └── users.ts              # GET, PUT, DELETE /users/:id (IDOR protected)
 │   ├── types/
 │   │   └── fastify.d.ts          # FastifyRequest interface augmentation (userId)
@@ -367,8 +381,8 @@ All endpoints return standardized JSON envelopes (`ok()` or `fail()`) and includ
 
 ### System & Documentation Endpoints
 
-#### `GET /health`
-Public health check verifying service status and PostgreSQL connectivity.
+#### `GET /health/live`
+Liveness probe verifying that the Node.js Fastify process is running and responsive. Does not depend on database or external services (ideal for Kubernetes liveness probes).
 - **Auth**: None
 - **Response `200 OK`**:
   ```json
@@ -379,6 +393,25 @@ Public health check verifying service status and PostgreSQL connectivity.
     }
   }
   ```
+
+#### `GET /health/ready`
+Readiness probe verifying that the backend is ready to accept and serve traffic by validating PostgreSQL database connectivity with a 2-second failsafe timeout (ideal for Kubernetes readiness probes).
+- **Auth**: None
+- **Response `200 OK`**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "status": "ok"
+    }
+  }
+  ```
+- **Error `503 SERVICE_UNAVAILABLE`**: Returned if the database connection fails or times out.
+
+#### `GET /health`
+Legacy and backward-compatible health check endpoint verifying process health and active PostgreSQL connectivity.
+- **Auth**: None
+- **Response `200 OK`** | **Error `503 SERVICE_UNAVAILABLE`**
 
 #### `GET /docs`
 Interactive Swagger UI documentation.
@@ -673,8 +706,19 @@ npm run db:migrate
 
 ---
 
-## 13. Rate Limiting & Observability
+## 13. Security Headers, Rate Limiting, CORS & Observability
 
+- **Helmet Security Headers** (`src/plugins/helmet.ts`):
+  - Configured with `@fastify/helmet`.
+  - Sets standard production headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-Download-Options: noopen`, `Referrer-Policy: no-referrer`, `Origin-Agent-Cluster: ?1`.
+  - Uses `Cross-Origin-Resource-Policy: cross-origin` so web clients and mobile applications can consume APIs without CORS/CORP conflicts.
+  - Safe for OpenAPI / Swagger UI (`/docs`).
+- **CORS Support** (`src/plugins/cors.ts`):
+  - Configured with `@fastify/cors`.
+  - Supports multiple comma-separated origins via `CORS_ORIGIN` (e.g. React web, Expo web, production domains).
+  - Production-safe: explicit origin matching ensures no unrestricted wildcards with credentials.
+  - Native mobile friendly: requests without an `Origin` header (iOS/Android native apps, curl, server-to-server) pass through seamlessly.
+  - Mobile-only projects can disable CORS completely by setting `CORS_ENABLED=false`.
 - **Rate Limiter Plugin** (`src/plugins/rateLimiter.ts`):
   - Configured with `@fastify/rate-limit`.
   - Global defaults: `100` requests per `60000ms` (1 min) per IP (configurable via `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS`).
@@ -718,8 +762,10 @@ To prevent catastrophic accidental data loss on development or production databa
 | **Domain CRUD** | `tests/example.test.ts` | Reference example CRUD operations, tenant isolation, soft-deletion |
 | **Pagination** | `tests/pagination.test.ts` | Cursor-based Base64 pagination, limit-offset pagination, boundary and limit validation |
 | **Rate Limiting** | `tests/rateLimit.test.ts` | Global rate limits, route-specific overrides, 429 error envelopes, rate limit headers |
+| **CORS** | `tests/cors.test.ts` | Multi-origin parsing, allowed/disallowed origins, preflight OPTIONS, missing Origin headers, disabled CORS |
+| **Helmet Security** | `tests/helmet.test.ts` | Standard security headers (`nosniff`, `frameguard`, `CORP`), custom options |
 | **Swagger / OpenAPI** | `tests/swagger.test.ts` | OpenAPI 3.0.3 schema generation, Swagger UI endpoint, Bearer auth definition |
-| **Health Check** | `tests/health.test.ts` | Service status check, database ping, response envelope |
+| **Health Check** | `tests/health.test.ts` | Liveness check process independence, readiness database ping, 503 error envelope, legacy `/health` |
 | **Error Handling** | `tests/errors.test.ts` | 404 handler, 500 error sanitization, stack trace suppression |
 | **Environment** | `tests/config.test.ts` | Zod environment parsing, defaults, invalid port/environment rejection |
 | **Database Guard** | `tests/dbGuard.test.ts` | URL parsing, safety guard validation, production protection triggers |

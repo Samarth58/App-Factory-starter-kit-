@@ -3,6 +3,8 @@ import type { FastifyError, FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
+import { registerCors, type CorsPluginOptions } from './plugins/cors.js';
+import { registerHelmet, type HelmetPluginOptions } from './plugins/helmet.js';
 import { registerRateLimiter, type RateLimiterOptions } from './plugins/rateLimiter.js';
 import { registerSwagger } from './plugins/swagger.js';
 import { adminRoutes } from './routes/admin.js';
@@ -27,6 +29,8 @@ export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 
 export interface AppOptions {
   rateLimit?: RateLimiterOptions;
+  cors?: CorsPluginOptions;
+  helmet?: HelmetPluginOptions;
 }
 
 export function buildApp(options?: AppOptions): FastifyInstance {
@@ -122,6 +126,8 @@ export function buildApp(options?: AppOptions): FastifyInstance {
       .send(fail('RESOURCE_NOT_FOUND', 'Route not found', []));
   });
 
+  app.register(registerHelmet, options?.helmet || {});
+  app.register(registerCors, options?.cors || {});
   app.register(registerRateLimiter, options?.rateLimit || {});
   app.register(registerSwagger);
   app.register(healthRoutes);
