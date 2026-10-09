@@ -68,3 +68,4 @@ export const examples = pgTable(
     index('examples_created_at_idx').on(table.createdAt),
   ],
 );
+export { categories } from '../modules/categories/index.js';

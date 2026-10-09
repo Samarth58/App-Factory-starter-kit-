@@ -3,6 +3,7 @@ import { adminRoutes } from './admin.js';
 import { authRoutes } from './auth.js';
 import { usersRoutes } from './users.js';
 import { exampleRoutes } from '../modules/example/index.js';
+import { categoriesRoutes } from '../modules/categories/index.js';
 
 /**
  * Aggregates all v1 API domain routes.
@@ -13,4 +14,5 @@ export async function apiV1Routes(app: FastifyInstance): Promise<void> {
   await app.register(usersRoutes);
   await app.register(adminRoutes);
   await app.register(exampleRoutes);
+  await app.register(categoriesRoutes);
 }

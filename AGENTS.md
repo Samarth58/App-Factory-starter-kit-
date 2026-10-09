@@ -249,7 +249,11 @@ app.post(
 
 Use the automated Module Scaffolding CLI:
 ```bash
+# Direct CLI invocation with fields
 npm run generate:module -- <feature_name> --fields name:string,price:number,inStock:boolean:optional
+
+# Specification-driven generation from a JSON spec file
+npm run generate:module -- --spec ./specs/<feature_name>.json
 ```
 
 Or follow the canonical manual pattern established in [`src/modules/example/`](file:///d:/App-factory(starter-kit)/src/modules/example/):
@@ -268,8 +272,9 @@ Or follow the canonical manual pattern established in [`src/modules/example/`](f
 # Development Server
 npm run dev
 
-# Generate New Domain Module Scaffolding
+# Generate New Domain Module Scaffolding (CLI arguments or JSON spec)
 npm run generate:module -- <name> [--fields field:type,field:type:optional]
+npm run generate:module -- --spec <path/to/spec.json>
 
 # Build (TypeScript Compiler)
 npm run build

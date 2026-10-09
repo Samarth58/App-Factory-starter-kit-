@@ -1,0 +1,11 @@
+{
+  "name": "products",
+  "fields": [
+    { "name": "name", "type": "string", "required": true },
+    { "name": "price", "type": "number", "required": true },
+    { "name": "inStock", "type": "boolean", "required": true },
+    { "name": "description", "type": "string", "required": false }
+  ],
+  "operations": ["create", "read", "update", "delete"],
+  "pagination": true
+}

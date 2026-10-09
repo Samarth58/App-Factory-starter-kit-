@@ -1,5 +1,46 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { z } from 'zod';
+
+export const SUPPORTED_FIELD_TYPES = ['string', 'number', 'boolean', 'date'] as const;
+export type SupportedFieldType = (typeof SUPPORTED_FIELD_TYPES)[number];
+
+export const SUPPORTED_OPERATIONS = ['create', 'read', 'update', 'delete'] as const;
+export type SupportedOperation = (typeof SUPPORTED_OPERATIONS)[number];
+
+export const moduleFieldSpecSchema = z.object({
+  name: z.string().trim().min(1, 'Field name is required'),
+  type: z.enum(SUPPORTED_FIELD_TYPES, {
+    errorMap: () => ({
+      message: `Invalid field type. Supported types: ${SUPPORTED_FIELD_TYPES.join(', ')}`,
+    }),
+  }),
+  required: z.boolean().default(true),
+  description: z.string().optional(),
+});
+
+export type ModuleFieldSpec = z.infer<typeof moduleFieldSpecSchema>;
+
+export const moduleSpecSchema = z.object({
+  name: z.string().trim().min(1, 'Module name is required'),
+  description: z.string().optional(),
+  fields: z
+    .array(moduleFieldSpecSchema)
+    .min(1, 'Module specification must contain at least one field definition.'),
+  operations: z
+    .array(
+      z.enum(SUPPORTED_OPERATIONS, {
+        errorMap: () => ({
+          message: `Invalid operation. Supported operations: ${SUPPORTED_OPERATIONS.join(', ')}`,
+        }),
+      }),
+    )
+    .optional()
+    .default(['create', 'read', 'update', 'delete']),
+  pagination: z.boolean().optional().default(true),
+});
+
+export type ModuleSpec = z.infer<typeof moduleSpecSchema>;
 
 export interface FieldDef {
   name: string;
@@ -247,11 +288,156 @@ export function parseFieldDefinitions(rawFields?: string): FieldDef[] {
   return fields;
 }
 
+const RESERVED_SYSTEM_FIELDS = new Set([
+  'id',
+  'user_id',
+  'userid',
+  'created_at',
+  'createdat',
+  'updated_at',
+  'updatedat',
+  'deleted_at',
+  'deletedat',
+]);
+
+/**
+ * Maps and validates fields from a parsed ModuleSpec into FieldDef array.
+ */
+export function mapSpecToFieldDefs(specFields: ModuleFieldSpec[]): FieldDef[] {
+  const seenNormalizedNames = new Set<string>();
+  const fieldDefs: FieldDef[] = [];
+
+  for (const field of specFields) {
+    const rawName = field.name.trim();
+
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(rawName)) {
+      throw new Error(
+        `Invalid field name "${rawName}". Must start with a letter and contain only alphanumeric characters or underscores.`,
+      );
+    }
+
+    const normalized = rawName.toLowerCase().replace(/[_-]/g, '');
+    if (RESERVED_SYSTEM_FIELDS.has(normalized)) {
+      throw new Error(
+        `Field name "${rawName}" is a reserved system field (id, userId, createdAt, updatedAt, deletedAt).`,
+      );
+    }
+
+    if (seenNormalizedNames.has(normalized)) {
+      throw new Error(
+        `Duplicate field name "${rawName}". Field names must be unique within a module specification.`,
+      );
+    }
+    seenNormalizedNames.add(normalized);
+
+    const words = rawName
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[_-]+/g, ' ')
+      .toLowerCase()
+      .trim()
+      .split(/\s+/);
+
+    const camelName = words
+      .map((w, i) => (i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+      .join('');
+    const pascalName = words
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join('');
+    const snakeName = words.join('_');
+
+    fieldDefs.push({
+      name: camelName,
+      camelName,
+      pascalName,
+      snakeName,
+      type: field.type,
+      isOptional: !field.required,
+    });
+  }
+
+  return fieldDefs;
+}
+
+/**
+ * Validates a ModuleSpec object or parsed JSON with detailed error formatting.
+ */
+export function parseModuleSpec(input: unknown): ModuleSpec {
+  if (typeof input !== 'object' || input === null) {
+    throw new Error('Specification must be a valid JSON object.');
+  }
+
+  const parsed = moduleSpecSchema.safeParse(input);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((i) => `${i.path.join('.') || 'root'}: ${i.message}`)
+      .join('; ');
+    throw new Error(`Specification validation failed: ${issues}`);
+  }
+
+  validateModuleName(parsed.data.name);
+  mapSpecToFieldDefs(parsed.data.fields);
+
+  return parsed.data;
+}
+
+/**
+ * Reads, parses, and validates a JSON module specification file from disk.
+ */
+export function loadModuleSpecFile(filePath: string, baseDir = process.cwd()): ModuleSpec {
+  const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(baseDir, filePath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Specification file not found at: ${resolvedPath}`);
+  }
+
+  let fileContent: string;
+  try {
+    fileContent = fs.readFileSync(resolvedPath, 'utf8');
+  } catch (err) {
+    throw new Error(`Failed to read specification file: ${(err as Error).message}`);
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(fileContent);
+  } catch (err) {
+    throw new Error(`Invalid JSON in specification file: ${(err as Error).message}`);
+  }
+
+  return parseModuleSpec(json);
+}
+
 /**
  * Generates the <module>.schema.ts content.
  */
 export function generateSchemaContent(names: InflectedNames, fields: FieldDef[]): string {
-  const { singularPascal, pluralCamel } = names;
+  const { singularPascal, pluralCamel, pluralSnake } = names;
+
+  const columnLines = fields
+    .map((f) => {
+      if (f.type === 'string') {
+        return f.isOptional
+          ? `    ${f.camelName}: text('${f.snakeName}'),`
+          : `    ${f.camelName}: text('${f.snakeName}').notNull(),`;
+      }
+      if (f.type === 'number') {
+        return f.isOptional
+          ? `    ${f.camelName}: doublePrecision('${f.snakeName}'),`
+          : `    ${f.camelName}: doublePrecision('${f.snakeName}').notNull(),`;
+      }
+      if (f.type === 'boolean') {
+        return f.isOptional
+          ? `    ${f.camelName}: boolean('${f.snakeName}'),`
+          : `    ${f.camelName}: boolean('${f.snakeName}').notNull().default(false),`;
+      }
+      if (f.type === 'date') {
+        return f.isOptional
+          ? `    ${f.camelName}: timestamp('${f.snakeName}', { withTimezone: true }),`
+          : `    ${f.camelName}: timestamp('${f.snakeName}', { withTimezone: true }).notNull(),`;
+      }
+      return `    ${f.camelName}: text('${f.snakeName}'),`;
+    })
+    .join('\n');
 
   const createProperties = fields
     .map((f) => {
@@ -317,11 +503,46 @@ export function generateSchemaContent(names: InflectedNames, fields: FieldDef[])
     })
     .join('\n');
 
-  return `import { z } from 'zod';
+  return `import { sql } from 'drizzle-orm';
+import {
+  boolean,
+  doublePrecision,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { z } from 'zod';
+import { users } from '../../db/schema.js';
 import {
   cursorPaginationSchema,
   limitOffsetPaginationSchema,
 } from '../../utils/pagination.js';
+
+export const ${pluralCamel} = pgTable(
+  '${pluralSnake}',
+  {
+    id: uuid('id').primaryKey().default(sql\`gen_random_uuid()\`),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+${columnLines}
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql\`now()\`),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql\`now()\`),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('${pluralSnake}_user_id_idx').on(table.userId),
+    index('${pluralSnake}_created_at_idx').on(table.createdAt),
+  ],
+);
+
+export type ${singularPascal}Row = typeof ${pluralCamel}.$inferSelect;
 
 export const idParamSchema = z.object({
   id: z.string().uuid(),
@@ -371,14 +592,14 @@ export function generateRepositoryContent(names: InflectedNames): string {
 
   return `import { and, desc, eq, isNull, lt, or, sql } from 'drizzle-orm';
 import { db as defaultDb } from '../../db/connection.js';
-// Note: Ensure table '${pluralCamel}' is exported in src/db/schema.ts
-import { ${pluralCamel} } from '../../db/schema.js';
-import type {
-  Create${singularPascal}Input,
-  Update${singularPascal}Input,
+import {
+  ${pluralCamel},
+  type Create${singularPascal}Input,
+  type ${singularPascal}Row,
+  type Update${singularPascal}Input,
 } from './${kebab}.schema.js';
 
-export type ${singularPascal}Row = typeof ${pluralCamel}.$inferSelect;
+export type { ${singularPascal}Row };
 
 export async function insert${singularPascal}(
   userId: string,
@@ -712,11 +933,11 @@ export async function ${pluralCamel}Routes(app: FastifyInstance): Promise<void> 
 
       if (offset !== undefined) {
         const result = await list${pluralPascal}LimitOffset(request.userId!, { limit, offset });
-        return reply.status(200).send(ok(result.data, result.meta));
+        return reply.status(200).send(ok(result.data, result.meta as unknown as Record<string, unknown>));
       }
 
       const result = await list${pluralPascal}Cursor(request.userId!, { limit, cursor });
-      return reply.status(200).send(ok(result.data, result.meta));
+      return reply.status(200).send(ok(result.data, result.meta as unknown as Record<string, unknown>));
     },
   );
 
@@ -948,69 +1169,19 @@ ${validPayloadEntries}
 `;
 }
 
-/**
- * Generates the Drizzle ORM schema snippet.
- */
-export function generateDrizzleSnippet(names: InflectedNames, fields: FieldDef[]): string {
-  const { pluralCamel, pluralSnake } = names;
+export function generateDrizzleSnippet(names: InflectedNames, _fields?: FieldDef[]): string {
+  const { pluralCamel, kebab } = names;
 
-  const columnLines = fields
-    .map((f) => {
-      if (f.type === 'string') {
-        return f.isOptional
-          ? `    ${f.camelName}: text('${f.snakeName}'),`
-          : `    ${f.camelName}: text('${f.snakeName}').notNull(),`;
-      }
-      if (f.type === 'number') {
-        return f.isOptional
-          ? `    ${f.camelName}: doublePrecision('${f.snakeName}'),`
-          : `    ${f.camelName}: doublePrecision('${f.snakeName}').notNull(),`;
-      }
-      if (f.type === 'boolean') {
-        return f.isOptional
-          ? `    ${f.camelName}: boolean('${f.snakeName}'),`
-          : `    ${f.camelName}: boolean('${f.snakeName}').notNull().default(false),`;
-      }
-      if (f.type === 'date') {
-        return f.isOptional
-          ? `    ${f.camelName}: timestamp('${f.snakeName}', { withTimezone: true }),`
-          : `    ${f.camelName}: timestamp('${f.snakeName}', { withTimezone: true }).notNull(),`;
-      }
-      return `    ${f.camelName}: text('${f.snakeName}'),`;
-    })
-    .join('\n');
-
-  return `// 1. Ensure required imports exist at the top of src/db/schema.ts:
-// import { boolean, doublePrecision, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-//
-// 2. Paste table definition into src/db/schema.ts:
-export const ${pluralCamel} = pgTable(
-  '${pluralSnake}',
-  {
-    id: uuid('id').primaryKey().default(sql\`gen_random_uuid()\`),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-${columnLines}
-    createdAt: timestamp('created_at', { withTimezone: true })
-      .notNull()
-      .default(sql\`now()\`),
-    updatedAt: timestamp('updated_at', { withTimezone: true })
-      .notNull()
-      .default(sql\`now()\`),
-    deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  },
-  (table) => [
-    index('${pluralSnake}_user_id_idx').on(table.userId),
-    index('${pluralSnake}_created_at_idx').on(table.createdAt),
-  ],
-);
+  return `// In src/db/schema.ts, export the table to include it in Drizzle migrations:
+export { ${pluralCamel} } from '../modules/${kebab}/index.js';
 `;
 }
 
 export interface GeneratorOptions {
-  name: string;
+  name?: string;
   fields?: string;
+  spec?: string | ModuleSpec;
+  specPath?: string;
   force?: boolean;
   dryRun?: boolean;
   baseDir?: string;
@@ -1030,11 +1201,40 @@ export function generateModule(options: GeneratorOptions): {
   names: InflectedNames;
   fields: FieldDef[];
 } {
-  validateModuleName(options.name);
-  const names = inflectNames(options.name);
-  const fields = parseFieldDefinitions(options.fields);
-
   const baseDir = options.baseDir || process.cwd();
+  let moduleName: string;
+  let fields: FieldDef[];
+
+  if (options.specPath || options.spec) {
+    let spec: ModuleSpec;
+    if (options.specPath) {
+      spec = loadModuleSpecFile(options.specPath, baseDir);
+    } else if (typeof options.spec === 'string') {
+      try {
+        const parsed = JSON.parse(options.spec);
+        spec = parseModuleSpec(parsed);
+      } catch (err) {
+        if ((err as Error).message.startsWith('Specification validation failed')) {
+          throw err;
+        }
+        throw new Error(`Invalid JSON in spec option: ${(err as Error).message}`);
+      }
+    } else {
+      spec = parseModuleSpec(options.spec);
+    }
+
+    moduleName = spec.name;
+    fields = mapSpecToFieldDefs(spec.fields);
+  } else {
+    if (!options.name) {
+      throw new Error('Module name is required when not providing a specification file (--spec).');
+    }
+    validateModuleName(options.name);
+    moduleName = options.name;
+    fields = parseFieldDefinitions(options.fields);
+  }
+
+  const names = inflectNames(moduleName);
   const targetDir = path.join(baseDir, 'src', 'modules', names.kebab);
 
   if (fs.existsSync(targetDir) && !options.force && !options.dryRun) {
@@ -1114,6 +1314,7 @@ if (
     const args = process.argv.slice(2);
     let moduleName = '';
     let fieldsArg: string | undefined;
+    let specPathArg: string | undefined;
     let force = false;
     let dryRun = false;
 
@@ -1123,6 +1324,8 @@ if (
         force = true;
       } else if (arg === '--dry-run') {
         dryRun = true;
+      } else if (arg === '--spec' || arg === '-s') {
+        specPathArg = args[++i];
       } else if (arg === '--fields' || arg === '-F') {
         fieldsArg = args[++i];
       } else if (!arg.startsWith('-') && !moduleName) {
@@ -1130,19 +1333,26 @@ if (
       }
     }
 
-    if (!moduleName) {
+    if (!moduleName && !specPathArg) {
       console.error(
-        'Usage: npm run generate:module -- <module-name> [--fields field:type,field:type:optional] [--force]',
+        'Usage: npm run generate:module -- <module-name> [--fields field:type,field:type:optional] [--force] [--dry-run]',
+      );
+      console.error(
+        '   or: npm run generate:module -- --spec <path-to-spec.json> [--force] [--dry-run]',
       );
       console.error(
         'Example: npm run generate:module -- products --fields name:string,price:number,inStock:boolean',
+      );
+      console.error(
+        'Example: npm run generate:module -- --spec ./specs/products.json',
       );
       process.exit(1);
     }
 
     const result = generateModule({
-      name: moduleName,
+      name: moduleName || undefined,
       fields: fieldsArg,
+      specPath: specPathArg,
       force,
       dryRun,
     });
@@ -1184,4 +1394,5 @@ if (
     process.exit(1);
   }
 }
+
 

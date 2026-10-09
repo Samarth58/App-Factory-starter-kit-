@@ -19,5 +19,15 @@ beforeEach(async () => {
     safetyCheckPassed = true;
   }
   // Truncate only explicit application tables (NEVER drizzle migrations table)
-  await pool.query('TRUNCATE TABLE examples, user_sessions, users RESTART IDENTITY CASCADE;');
+  const appTables = ['examples', 'categories', 'user_sessions', 'users'];
+  const { rows } = await pool.query<{ tablename: string }>(
+    `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY($1::text[])`,
+    [appTables],
+  );
+  if (rows.length > 0) {
+    const tableList = rows.map((r) => `"${r.tablename}"`).join(', ');
+    await pool.query(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE;`);
+  }
 });
+
+

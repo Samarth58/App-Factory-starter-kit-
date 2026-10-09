@@ -656,6 +656,9 @@ npm run generate:module -- products
 # Advanced usage with custom fields (string, number, boolean, date)
 npm run generate:module -- products --fields name:string,price:number,inStock:boolean,description:string:optional,publishedAt:date:optional
 
+# Specification-driven generation from a JSON spec file
+npm run generate:module -- --spec ./specs/products.json
+
 # Safe overwrite of existing module
 npm run generate:module -- products --force
 ```
@@ -671,7 +674,7 @@ npm run generate:module -- products --force
 ---
 
 ### Extension Recipe: Creating a New Domain Module
-1. **Generate Scaffolding**: Run `npm run generate:module -- <module-name> --fields <field_definitions>`.
+1. **Generate Scaffolding**: Run `npm run generate:module -- <module-name> --fields <field_definitions>` or `npm run generate:module -- --spec <path_to_spec.json>`.
 2. **Add Table Definition**: Copy the generated Drizzle table snippet from terminal output and paste into `src/db/schema.ts`.
 3. **Generate Migration**: Run `npm run db:generate` and `npm run db:migrate`.
 4. **Register in API Router**: In `src/routes/apiV1.ts`, import and register `app.register(<module>Routes)`.

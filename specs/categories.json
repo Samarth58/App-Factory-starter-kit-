@@ -1,0 +1,12 @@
+{
+  "name": "categories",
+  "description": "Category domain module for catalog management",
+  "fields": [
+    { "name": "name", "type": "string", "required": true },
+    { "name": "description", "type": "string", "required": false },
+    { "name": "displayOrder", "type": "number", "required": true },
+    { "name": "isActive", "type": "boolean", "required": true }
+  ],
+  "operations": ["create", "read", "update", "delete"],
+  "pagination": true
+}
