@@ -16,6 +16,7 @@ The **App Factory Backend Starter Kit** provides a battle-tested architecture fe
 - **Password Hashing**: [Argon2id](https://github.com/ranisalt/node-argon2) (`argon2: ^0.41.1`)
 - **Authentication & Sessions**: [jsonwebtoken](https://github.com/auth0/node-jsonwebtoken) `v9.0.2` (15-minute Access JWTs, 30-day Refresh JWTs, single-use session rotation, 20-second concurrency grace window, token theft revocation)
 - **Authorization & RBAC**: Role-Based Access Control (`user` and `admin` roles, `authGuard`, `adminGuard`, IDOR ownership checks)
+- **API Versioning**: Standard `/api/v1` route prefixing with backward-compatible root aliases and isolated health probes
 - **API Documentation**: OpenAPI 3.0.3 specification and interactive UI via `@fastify/swagger` `v9.9.1` and `@fastify/swagger-ui` `v6.1.1` mounted at `/docs` and `/docs/json`
 - **Rate Limiting**: Centralized and route-level rate limiting via `@fastify/rate-limit` `v11.2.0`
 - **Security Headers**: Centralized HTTP security headers via `@fastify/helmet` (safe defaults for APIs, cross-origin web/mobile apps, and Swagger UI)
@@ -294,6 +295,7 @@ CORS_CREDENTIALS=true
 │   │   └── swagger.ts            # Centralized @fastify/swagger and OpenAPI UI plugin
 │   ├── routes/
 │   │   ├── admin.ts              # Administrative user management & role control routes
+│   │   ├── apiV1.ts              # Aggregated v1 domain routes for /api/v1 prefixing
 │   │   ├── auth.ts               # POST /register, /login, /refresh, /logout
 │   │   ├── health.ts             # GET /health, /health/live, /health/ready
 │   │   └── users.ts              # GET, PUT, DELETE /users/:id (IDOR protected)
@@ -377,9 +379,9 @@ The application supports role-based access control with `user` and `admin` roles
 
 ## 9. API Reference
 
-All endpoints return standardized JSON envelopes (`ok()` or `fail()`) and include the `x-request-id` header.
+All endpoints return standardized JSON envelopes (`ok()` or `fail()`) and include the `x-request-id` header. Application domain routes are mounted under the `/api/v1` version prefix (with root-level unversioned aliases retained for full backward compatibility). Health checks are exposed directly at the root.
 
-### System & Documentation Endpoints
+### System & Documentation Endpoints (Root Level)
 
 #### `GET /health/live`
 Liveness probe verifying that the Node.js Fastify process is running and responsive. Does not depend on database or external services (ideal for Kubernetes liveness probes).
@@ -421,9 +423,11 @@ OpenAPI 3.0.3 JSON schema specification.
 
 ---
 
-### Authentication Endpoints (`/auth`)
+### Authentication Endpoints (`/api/v1` & `/auth`)
 
-#### `POST /register`
+All authentication routes are accessible at `/api/v1/register`, `/api/v1/login`, `/api/v1/refresh`, `/api/v1/logout` (as well as legacy root endpoints `/register`, `/login`, etc.).
+
+#### `POST /api/v1/register` (alias: `/register`)
 Registers a new user account and issues initial Access and Refresh tokens.
 - **Auth**: None | **Rate Limit**: 10 requests / min
 - **Request Body**:
@@ -764,7 +768,8 @@ To prevent catastrophic accidental data loss on development or production databa
 | **Rate Limiting** | `tests/rateLimit.test.ts` | Global rate limits, route-specific overrides, 429 error envelopes, rate limit headers |
 | **CORS** | `tests/cors.test.ts` | Multi-origin parsing, allowed/disallowed origins, preflight OPTIONS, missing Origin headers, disabled CORS |
 | **Helmet Security** | `tests/helmet.test.ts` | Standard security headers (`nosniff`, `frameguard`, `CORP`), custom options |
-| **Swagger / OpenAPI** | `tests/swagger.test.ts` | OpenAPI 3.0.3 schema generation, Swagger UI endpoint, Bearer auth definition |
+| **API Versioning** | `tests/versioning.test.ts` | `/api/v1` route prefixing, health probe isolation, and root-level backward compatibility |
+| **Swagger / OpenAPI** | `tests/swagger.test.ts` | OpenAPI 3.0.3 schema generation, `/api/v1` path indexing, Swagger UI endpoint, Bearer auth definition |
 | **Health Check** | `tests/health.test.ts` | Liveness check process independence, readiness database ping, 503 error envelope, legacy `/health` |
 | **Error Handling** | `tests/errors.test.ts` | 404 handler, 500 error sanitization, stack trace suppression |
 | **Environment** | `tests/config.test.ts` | Zod environment parsing, defaults, invalid port/environment rejection |

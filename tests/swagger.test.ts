@@ -131,6 +131,20 @@ describe('OpenAPI / Swagger Documentation', () => {
     expect(paths['/examples']?.get?.security).toEqual([{ bearerAuth: [] }]);
   });
 
+  it('documents versioned /api/v1 endpoints in OpenAPI specification', async () => {
+    const app = buildApp();
+    await app.ready();
+
+    const openapi = app.swagger() as OpenAPIV3.Document;
+    const paths = openapi.paths || {};
+
+    expect(paths['/api/v1/register']?.post).toBeDefined();
+    expect(paths['/api/v1/login']?.post).toBeDefined();
+    expect(paths['/api/v1/users/{id}']?.get).toBeDefined();
+    expect(paths['/api/v1/admin/users']?.get).toBeDefined();
+    expect(paths['/api/v1/examples']?.get).toBeDefined();
+  });
+
   it('preserves normal route execution and behavior', async () => {
     const app = buildApp();
     const res = await app.inject({

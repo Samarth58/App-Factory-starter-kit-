@@ -256,7 +256,7 @@ Follow the canonical pattern established in [`src/modules/example/`](file:///d:/
 4. **Add Service Layer**: `<feature>Service.ts` (encapsulate all Drizzle database queries, tenant isolation by `userId`, and pagination).
 5. **Add Route Handler**: `<feature>Routes.ts` (apply `authGuard`, Zod validation, OpenAPI annotations, standard response envelopes).
 6. **Export Module**: `index.ts` re-exporting schemas, service, and routes.
-7. **Register in App**: In [`src/app.ts`](file:///d:/App-factory(starter-kit)/src/app.ts), import and register `app.register(<feature>Routes)`.
+7. **Register in App**: In [`src/routes/apiV1.ts`](file:///d:/App-factory(starter-kit)/src/routes/apiV1.ts), import and register `app.register(<feature>Routes)` (automatically mounts under `/api/v1` and root backward-compatible routes).
 8. **Add Tests**: Create `tests/<feature>.test.ts` verifying authentication, authorization, CRUD operations, tenant isolation, and error edge cases.
 
 ---

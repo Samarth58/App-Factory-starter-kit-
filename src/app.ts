@@ -7,11 +7,8 @@ import { registerCors, type CorsPluginOptions } from './plugins/cors.js';
 import { registerHelmet, type HelmetPluginOptions } from './plugins/helmet.js';
 import { registerRateLimiter, type RateLimiterOptions } from './plugins/rateLimiter.js';
 import { registerSwagger } from './plugins/swagger.js';
-import { adminRoutes } from './routes/admin.js';
-import { authRoutes } from './routes/auth.js';
+import { apiV1Routes } from './routes/apiV1.js';
 import { healthRoutes } from './routes/health.js';
-import { usersRoutes } from './routes/users.js';
-import { exampleRoutes } from './modules/example/index.js';
 import { fail } from './utils/response.js';
 
 export const ERROR_CODES = {
@@ -131,10 +128,8 @@ export function buildApp(options?: AppOptions): FastifyInstance {
   app.register(registerRateLimiter, options?.rateLimit || {});
   app.register(registerSwagger);
   app.register(healthRoutes);
-  app.register(authRoutes);
-  app.register(usersRoutes);
-  app.register(adminRoutes);
-  app.register(exampleRoutes);
+  app.register(apiV1Routes, { prefix: '/api/v1' });
+  app.register(apiV1Routes);
 
   return app;
 }
