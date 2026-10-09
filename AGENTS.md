@@ -247,17 +247,18 @@ app.post(
 
 ## 10. How to Add a New Domain Module
 
-Follow the canonical pattern established in [`src/modules/example/`](file:///d:/App-factory(starter-kit)/src/modules/example/):
+Use the automated Module Scaffolding CLI:
+```bash
+npm run generate:module -- <feature_name> --fields name:string,price:number,inStock:boolean:optional
+```
 
-1. **Define Schema**:
+Or follow the canonical manual pattern established in [`src/modules/example/`](file:///d:/App-factory(starter-kit)/src/modules/example/):
+
+1. **Scaffold or Create Module Folder**: `src/modules/<feature_name>/` (contains `<feature>.schema.ts`, `<feature>.repository.ts`, `<feature>.service.ts`, `<feature>.routes.ts`, `index.ts`, `<feature>.test.ts`).
+2. **Define Schema**:
    Add table definition to [`src/db/schema.ts`](file:///d:/App-factory(starter-kit)/src/db/schema.ts) with `userId`, timestamps, and soft-delete column `deletedAt`. Run `npm run db:generate`.
-2. **Create Module Folder**: `src/modules/<feature_name>/`
-3. **Add Validation Schemas**: `<feature>Schemas.ts` (using Zod for body, query, and path params).
-4. **Add Service Layer**: `<feature>Service.ts` (encapsulate all Drizzle database queries, tenant isolation by `userId`, and pagination).
-5. **Add Route Handler**: `<feature>Routes.ts` (apply `authGuard`, Zod validation, OpenAPI annotations, standard response envelopes).
-6. **Export Module**: `index.ts` re-exporting schemas, service, and routes.
-7. **Register in App**: In [`src/routes/apiV1.ts`](file:///d:/App-factory(starter-kit)/src/routes/apiV1.ts), import and register `app.register(<feature>Routes)` (automatically mounts under `/api/v1` and root backward-compatible routes).
-8. **Add Tests**: Create `tests/<feature>.test.ts` verifying authentication, authorization, CRUD operations, tenant isolation, and error edge cases.
+3. **Register in App**: In [`src/routes/apiV1.ts`](file:///d:/App-factory(starter-kit)/src/routes/apiV1.ts), import and register `app.register(<feature>Routes)` (automatically mounts under `/api/v1` and root backward-compatible routes).
+4. **Run Tests**: Verify with `npx vitest run src/modules/<feature_name>/<feature>.test.ts`.
 
 ---
 
@@ -266,6 +267,9 @@ Follow the canonical pattern established in [`src/modules/example/`](file:///d:/
 ```bash
 # Development Server
 npm run dev
+
+# Generate New Domain Module Scaffolding
+npm run generate:module -- <name> [--fields field:type,field:type:optional]
 
 # Build (TypeScript Compiler)
 npm run build
@@ -283,6 +287,9 @@ npm run format
 npm test
 
 # Run Specific Test File
+npx vitest run tests/example.test.ts
+npx vitest run tests/generateModule.test.ts
+npx vitest run tests/versioning.test.ts
 npx vitest run tests/example.test.ts
 npx vitest run tests/rateLimit.test.ts
 npx vitest run tests/swagger.test.ts

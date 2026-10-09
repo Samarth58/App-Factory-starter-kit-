@@ -645,15 +645,37 @@ src/modules/example/
 └── index.ts               # Clean public barrel exports
 ```
 
+### Module Generator CLI (`generate:module`)
+
+The Starter Kit includes a built-in module scaffolding generator to stamp out production-ready domain modules adhering to all architectural standards in seconds.
+
+```bash
+# Basic usage (defaults to name and optional description fields)
+npm run generate:module -- products
+
+# Advanced usage with custom fields (string, number, boolean, date)
+npm run generate:module -- products --fields name:string,price:number,inStock:boolean,description:string:optional,publishedAt:date:optional
+
+# Safe overwrite of existing module
+npm run generate:module -- products --force
+```
+
+#### Generated Structure (`src/modules/<module>/`):
+- `<module>.schema.ts`: Zod validation schemas (create, update, params, pagination) and TypeScript interfaces
+- `<module>.repository.ts`: Tenant-isolated Drizzle database queries and soft-deletion
+- `<module>.service.ts`: Business logic and cursor/offset pagination transformation
+- `<module>.routes.ts`: Fastify `/api/v1` routes with OpenAPI annotations, `authGuard`, and response envelopes
+- `index.ts`: Clean public module barrel export
+- `<module>.test.ts`: Vitest integration test suite for CRUD operations, authorization, and validation
+
+---
+
 ### Extension Recipe: Creating a New Domain Module
-1. **Define Schema**: Add table in `src/db/schema.ts` with `userId` foreign key and `deletedAt` timestamp.
-2. **Generate Migration**: Run `npm run db:generate` and `npm run db:migrate`.
-3. **Create Module Directory**: Create `src/modules/<feature_name>/`.
-4. **Define Schemas**: Create `<feature>Schemas.ts` using Zod for body, query, and path params.
-5. **Create Service**: Create `<feature>Service.ts` encapsulating database queries scoped to `userId`.
-6. **Create Routes**: Create `<feature>Routes.ts` with `authGuard`, OpenAPI annotations, and `ok()`/`fail()` response envelopes.
-7. **Register in `src/app.ts`**: Import and register `app.register(<feature>Routes)`.
-8. **Add Tests**: Create `tests/<feature>.test.ts` verifying authentication, authorization, CRUD, and error handling.
+1. **Generate Scaffolding**: Run `npm run generate:module -- <module-name> --fields <field_definitions>`.
+2. **Add Table Definition**: Copy the generated Drizzle table snippet from terminal output and paste into `src/db/schema.ts`.
+3. **Generate Migration**: Run `npm run db:generate` and `npm run db:migrate`.
+4. **Register in API Router**: In `src/routes/apiV1.ts`, import and register `app.register(<module>Routes)`.
+5. **Run Module Tests**: `npx vitest run src/modules/<module-name>/<module>.test.ts`.
 
 ---
 
@@ -776,6 +798,7 @@ To prevent catastrophic accidental data loss on development or production databa
 | **Database Guard** | `tests/dbGuard.test.ts` | URL parsing, safety guard validation, production protection triggers |
 | **Request Tracking** | `tests/requestId.test.ts` | Request ID header generation, preservation, and format validation |
 | **Response Envelope** | `tests/envelope.test.ts` | Helper format consistency for `ok()` and `fail()` |
+| **Module Generator** | `tests/generateModule.test.ts` | CLI parameter validation, name inflection, custom field parsing, and scaffolding dry-run |
 
 ### Running Tests
 ```bash

@@ -12,6 +12,7 @@
     "type-check": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx db/migrate.ts",
+    "generate:module": "tsx scripts/generateModule.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
