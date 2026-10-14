@@ -175,7 +175,7 @@ return reply.status(400).send(
    ```bash
    cp .env.example .env
    ```
-   Edit `.env` and configure `DATABASE_URL`, `JWT_SECRET`, and `TEST_DATABASE_URL`.
+   Edit `.env` and configure `DATABASE_URL` and `JWT_SECRET`.
 
 4. **Generate and run database migrations:**
    ```bash
@@ -213,7 +213,7 @@ Startup environment variables are parsed and strictly validated using Zod in `sr
 | `CORS_ENABLED` | No | `true` | `true`, `false`, `1`, `0` | Enable or disable CORS headers entirely (set to `false` for native mobile-only projects) |
 | `CORS_ORIGIN` | No | `http://localhost:3000,http://localhost:5173,http://localhost:8081,http://localhost:19006` | Comma-separated URLs | Explicitly allowed web client origins (React web, Vite, Expo web) |
 | `CORS_CREDENTIALS` | No | `true` | `true`, `false`, `1`, `0` | Allow credentials in CORS requests (`Access-Control-Allow-Credentials`) |
-| `TEST_DATABASE_URL` | **Yes (for tests)** | — | `postgresql://.../app_test_db` | Dedicated test database URL. Must contain `'test'` in database name |
+| `TEST_DB_SCHEMA` | No | `app_test` | Valid SQL identifier containing `'test'` | Isolated PostgreSQL schema dedicated to Vitest execution |
 
 ### Example Configuration (`.env.example`)
 ```env
@@ -222,8 +222,8 @@ PORT=3000
 DATABASE_URL=postgresql://postgres:password@localhost:5432/app_db
 JWT_SECRET=your-secret-key-change-this-to-a-long-random-string
 
-# Test Database Configuration (REQUIRED for running Vitest integration tests)
-TEST_DATABASE_URL=postgresql://postgres:password@localhost:5432/app_test_db
+# (Optional) Test Schema Configuration (defaults to 'app_test')
+# TEST_DB_SCHEMA=app_test
 
 # Optional Rate Limit Overrides
 RATE_LIMIT_MAX=100
@@ -323,7 +323,7 @@ CORS_CREDENTIALS=true
     ├── swagger.test.ts           # OpenAPI specification and Swagger UI endpoint tests
     ├── users.test.ts             # User profile CRUD, IDOR, and soft-delete tests
     └── helpers/
-        ├── dbGuard.ts            # Test database URL validation and connection assertion
+        ├── dbGuard.ts            # Test schema isolation, URL parsing, and connection assertion
         └── dnsFallback.ts        # DNS fallback helper for cloud database connections
 ```
 
@@ -770,15 +770,15 @@ npm run db:migrate
 
 Integration testing is powered by **Vitest**. Tests execute against a live PostgreSQL test database with comprehensive isolation and safety protections.
 
-### Test Database Safety Isolation
-To prevent catastrophic accidental data loss on development or production databases:
+### Test Database Safety Isolation (Single Database Architecture)
+The test suite operates against the single configured `DATABASE_URL` and guarantees zero-tolerance isolation from application data via a dedicated PostgreSQL schema (`app_test`):
 1. **Safety Verification Guard** (`tests/helpers/dbGuard.ts`):
-   - Asserts that `TEST_DATABASE_URL` is configured and that its database name contains `'test'`.
-   - Strictly verifies that `TEST_DATABASE_URL` does not point to the same database as `DATABASE_URL`.
-2. **Worker Pre-Setup** (`tests/preSetup.ts`): Validates database configuration before test modules load.
-3. **Global Migration Runner** (`tests/globalSetup.ts`): Runs migrations (`./drizzle`) against the test database.
-4. **Runtime Connection Assertion** (`tests/setup.ts`): Executes `SELECT current_database()` to confirm the active connected database contains `'test'` before performing any operations.
-5. **Safe Table Truncation**: Truncates only application tables (`examples`, `user_sessions`, `users`) via `TRUNCATE ... RESTART IDENTITY CASCADE` before each test. Migration tables (`__drizzle_migrations`) are never truncated.
+   - Asserts that `DATABASE_URL` is configured and valid.
+   - Enforces that the test schema contains `'test'` and strictly forbids running against `'public'`.
+2. **Worker Pre-Setup** (`tests/preSetup.ts`): Sets `DB_SCHEMA` to `app_test` so all application queries target the isolated test schema.
+3. **Global Migration Runner** (`tests/globalSetup.ts`): Creates schema `app_test` if needed, tracks migrations in `app_test.__drizzle_migrations`, and dynamically adapts foreign keys so all relations remain strictly within `app_test`. Original migration files in `drizzle/` remain untouched.
+4. **Runtime Connection Assertion** (`tests/setup.ts`): Executes `SELECT current_schema()` to confirm the active connected schema is `app_test` and aborts immediately if connected to `public`.
+5. **Verified Table Truncation**: Verifies the schema of every table returned from `pg_tables` before truncation. Truncates only application tables (`examples`, `categories`, `user_sessions`, `users`) inside `app_test` via `TRUNCATE TABLE "app_test"."..." RESTART IDENTITY CASCADE`. Tables in `public` can never be selected or truncated.
 
 ### Test Categories
 

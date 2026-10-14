@@ -1,15 +1,15 @@
 import 'dotenv/config';
-import { validateTestDatabaseUrl } from './helpers/dbGuard.js';
+import { validateDatabaseUrl, validateTestSchema } from './helpers/dbGuard.js';
 import { initDnsFallback } from './helpers/dnsFallback.js';
 
 initDnsFallback();
 
 const mainUrl = process.env.DATABASE_URL;
-const testUrl = process.env.TEST_DATABASE_URL;
+const testSchema = process.env.TEST_DB_SCHEMA || 'app_test';
 
 // Worker-level verification guard before any src module is imported
-validateTestDatabaseUrl(mainUrl, testUrl);
+validateDatabaseUrl(mainUrl);
+validateTestSchema(testSchema);
 
-if (testUrl) {
-  process.env.DATABASE_URL = testUrl;
-}
+// Set test isolation schema for the connection pool
+process.env.DB_SCHEMA = testSchema;

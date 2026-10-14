@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  adaptMigrationSqlForTestSchema,
   parseDatabaseUrl,
-  validateTestDatabaseUrl,
+  validateDatabaseUrl,
+  validateTestSchema,
+  verifyTableSchemasBeforeTruncation,
   verifyTestDatabaseConnection,
 } from './helpers/dbGuard.js';
 
@@ -40,139 +43,170 @@ describe('Database Safety Guard (dbGuard)', () => {
     });
   });
 
-  describe('validateTestDatabaseUrl', () => {
-    it('accepts a valid test database URL distinct from main DATABASE_URL', () => {
-      const result = validateTestDatabaseUrl(
+  describe('validateDatabaseUrl', () => {
+    it('accepts a valid DATABASE_URL', () => {
+      const result = validateDatabaseUrl(
         'postgresql://postgres:secret@localhost:5432/app_db',
-        'postgresql://postgres:secret@localhost:5432/app_test_db',
       );
       expect(result.valid).toBe(true);
-      expect(result.testDatabaseName).toBe('app_test_db');
+      expect(result.database).toBe('app_db');
     });
 
-    it('accepts a valid test database URL when main DATABASE_URL is undefined', () => {
-      const result = validateTestDatabaseUrl(
-        undefined,
-        'postgresql://postgres:secret@localhost:5432/unit_test_db',
+    it('rejects missing or empty DATABASE_URL', () => {
+      expect(() => validateDatabaseUrl(undefined)).toThrowError(
+        'DATABASE_URL is required and must be set',
       );
+
+      expect(() => validateDatabaseUrl('')).toThrowError(
+        'DATABASE_URL is required and must be set',
+      );
+    });
+  });
+
+  describe('validateTestSchema', () => {
+    it('accepts a valid test schema name containing "test"', () => {
+      const result = validateTestSchema('app_test');
       expect(result.valid).toBe(true);
-      expect(result.testDatabaseName).toBe('unit_test_db');
+      expect(result.schemaName).toBe('app_test');
+
+      const customResult = validateTestSchema('my_test_schema');
+      expect(customResult.valid).toBe(true);
+      expect(customResult.schemaName).toBe('my_test_schema');
     });
 
-    it('rejects missing or empty TEST_DATABASE_URL', () => {
-      expect(() =>
-        validateTestDatabaseUrl('postgresql://localhost:5432/app_db', undefined),
-      ).toThrowError('TEST_DATABASE_URL is required and must be set');
-
-      expect(() =>
-        validateTestDatabaseUrl('postgresql://localhost:5432/app_db', ''),
-      ).toThrowError('TEST_DATABASE_URL is required and must be set');
-    });
-
-    it('rejects TEST_DATABASE_URL when database name does not contain "test"', () => {
-      expect(() =>
-        validateTestDatabaseUrl(
-          'postgresql://localhost:5432/app_prod',
-          'postgresql://localhost:5432/app_staging',
-        ),
-      ).toThrowError('TEST_DATABASE_URL database name must contain "test"');
-    });
-
-    it('rejects when TEST_DATABASE_URL points to the exact same database as DATABASE_URL', () => {
-      expect(() =>
-        validateTestDatabaseUrl(
-          'postgresql://postgres:pass1@localhost:5432/app_test_db',
-          'postgresql://postgres:pass2@localhost:5432/app_test_db',
-        ),
-      ).toThrowError(
-        'TEST_DATABASE_URL must not point to the same database as DATABASE_URL',
+    it('rejects missing or empty test schema name', () => {
+      expect(() => validateTestSchema(undefined)).toThrowError(
+        'Test schema name is required and must be set',
+      );
+      expect(() => validateTestSchema('')).toThrowError(
+        'Test schema name is required and must be set',
       );
     });
 
-    it('rejects when TEST_DATABASE_URL and DATABASE_URL match via localhost vs 127.0.0.1', () => {
-      expect(() =>
-        validateTestDatabaseUrl(
-          'postgresql://user1:pass1@localhost:5432/app_test_db',
-          'postgresql://user2:pass2@127.0.0.1:5432/app_test_db',
-        ),
-      ).toThrowError(
-        'TEST_DATABASE_URL must not point to the same database as DATABASE_URL',
+    it('strictly rejects "public" schema to prevent accidental production/dev mutation', () => {
+      expect(() => validateTestSchema('public')).toThrowError(
+        "Test schema cannot be 'public'. Tests are strictly forbidden from running against the public schema.",
+      );
+      expect(() => validateTestSchema('PUBLIC')).toThrowError(
+        "Test schema cannot be 'public'. Tests are strictly forbidden from running against the public schema.",
+      );
+    });
+
+    it('rejects schema names that do not contain "test"', () => {
+      expect(() => validateTestSchema('production')).toThrowError(
+        'Test schema name must contain "test"',
+      );
+      expect(() => validateTestSchema('app_staging')).toThrowError(
+        'Test schema name must contain "test"',
+      );
+    });
+
+    it('rejects invalid SQL identifiers', () => {
+      expect(() => validateTestSchema('test-schema')).toThrowError(
+        'Test schema name must be a valid SQL identifier',
+      );
+      expect(() => validateTestSchema('test; drop table users;')).toThrowError(
+        'Test schema name must be a valid SQL identifier',
       );
     });
   });
 
   describe('verifyTestDatabaseConnection (First-Connection Safety Check)', () => {
-    it('passes when connected database name matches expected test database name and contains test', async () => {
+    it('passes when connected schema matches expected test schema and contains test', async () => {
       const mockPool = {
-        query: async () => ({ rows: [{ current_db: 'app_test_db' }] }),
+        query: async () => ({ rows: [{ current_schema: 'app_test', current_db: 'app_db' }] }),
       };
       await expect(
-        verifyTestDatabaseConnection(
-          mockPool,
-          'postgresql://user:pass@localhost:5432/app_test_db',
-        ),
+        verifyTestDatabaseConnection(mockPool, 'app_test'),
       ).resolves.toBeUndefined();
     });
 
-    it('aborts when connected database name does not contain test', async () => {
+    it('strictly aborts when connected schema is public', async () => {
       const mockPool = {
-        query: async () => ({ rows: [{ current_db: 'production_main' }] }),
+        query: async () => ({ rows: [{ current_schema: 'public', current_db: 'app_db' }] }),
       };
       await expect(
-        verifyTestDatabaseConnection(
-          mockPool,
-          'postgresql://user:pass@localhost:5432/production_main',
-        ),
+        verifyTestDatabaseConnection(mockPool, 'app_test'),
       ).rejects.toThrowError(
-        'Safety check failed: connected database name does not contain "test"',
+        "Safety check failed: connected to 'public' schema. Tests are strictly forbidden from running against public schema.",
       );
     });
 
-    it('aborts when connected database does not match expected test database in TEST_DATABASE_URL', async () => {
+    it('aborts when connected schema does not match expected test schema', async () => {
       const mockPool = {
-        query: async () => ({ rows: [{ current_db: 'different_test_db' }] }),
+        query: async () => ({ rows: [{ current_schema: 'other_test', current_db: 'app_db' }] }),
       };
       await expect(
-        verifyTestDatabaseConnection(
-          mockPool,
-          'postgresql://user:pass@localhost:5432/expected_test_db',
-        ),
+        verifyTestDatabaseConnection(mockPool, 'app_test'),
       ).rejects.toThrowError(
-        'Safety check failed: connected database does not match expected test database',
+        'Safety check failed: connected schema "other_test" does not match expected test schema "app_test"',
+      );
+    });
+
+    it('aborts when connected schema does not contain test', async () => {
+      const mockPool = {
+        query: async () => ({ rows: [{ current_schema: 'main_schema', current_db: 'app_db' }] }),
+      };
+      await expect(
+        verifyTestDatabaseConnection(mockPool, 'app_test'),
+      ).rejects.toThrowError(
+        'Safety check failed: connected schema name does not contain "test"',
       );
     });
   });
 
-  describe('Worker Environment DATABASE_URL Isolation Verification', () => {
-    it('compares parsed worker DATABASE_URL with TEST_DATABASE_URL', () => {
-      const workerDb = process.env.DATABASE_URL;
-      const testDb = process.env.TEST_DATABASE_URL;
+  describe('verifyTableSchemasBeforeTruncation', () => {
+    it('passes when all target tables belong to the verified test schema', () => {
+      const rows = [
+        { schemaname: 'app_test', tablename: 'users' },
+        { schemaname: 'app_test', tablename: 'user_sessions' },
+        { schemaname: 'app_test', tablename: 'examples' },
+      ];
+      expect(() => verifyTableSchemasBeforeTruncation(rows, 'app_test')).not.toThrow();
+    });
 
-      if (!testDb) {
-        // When TEST_DATABASE_URL is not set, this unit test asserts parsed simulation
-        const simulatedTestUrl =
-          'postgresql://postgres:secret@localhost:5432/app_test_db';
-        const simulatedWorkerUrl =
-          'postgresql://postgres:secret@localhost:5432/app_test_db';
+    it('aborts immediately if any table belongs to public schema', () => {
+      const rows = [
+        { schemaname: 'app_test', tablename: 'users' },
+        { schemaname: 'public', tablename: 'real_users' },
+      ];
+      expect(() => verifyTableSchemasBeforeTruncation(rows, 'app_test')).toThrowError(
+        'Safety check failed: cannot truncate table "public"."real_users". Public schema tables can never be truncated in tests.',
+      );
+    });
 
-        const parsedWorker = parseDatabaseUrl(simulatedWorkerUrl);
-        const parsedTest = parseDatabaseUrl(simulatedTestUrl);
+    it('aborts immediately if any table does not match the verified test schema', () => {
+      const rows = [
+        { schemaname: 'app_test', tablename: 'users' },
+        { schemaname: 'other_schema', tablename: 'foreign_table' },
+      ];
+      expect(() => verifyTableSchemasBeforeTruncation(rows, 'app_test')).toThrowError(
+        'Safety check failed: cannot truncate table "other_schema"."foreign_table". Table schema does not match verified test schema "app_test".',
+      );
+    });
+  });
 
-        expect(parsedWorker.hostname).toBe(parsedTest.hostname);
-        expect(parsedWorker.port).toBe(parsedTest.port);
-        expect(parsedWorker.database).toBe(parsedTest.database);
-        expect(parsedWorker.database.toLowerCase()).toContain('test');
-        return;
-      }
+  describe('adaptMigrationSqlForTestSchema', () => {
+    it('rewrites quoted REFERENCES "public". to test schema', () => {
+      const sql = 'ALTER TABLE "user_sessions" ADD CONSTRAINT "fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id");';
+      const adapted = adaptMigrationSqlForTestSchema(sql, 'app_test');
+      expect(adapted).toBe(
+        'ALTER TABLE "user_sessions" ADD CONSTRAINT "fk" FOREIGN KEY ("user_id") REFERENCES "app_test"."users"("id");',
+      );
+    });
 
-      expect(workerDb).toBeDefined();
-      const parsedWorker = parseDatabaseUrl(workerDb!);
-      const parsedTest = parseDatabaseUrl(testDb);
+    it('rewrites unquoted REFERENCES public. to test schema', () => {
+      const sql = 'ALTER TABLE user_sessions ADD CONSTRAINT fk FOREIGN KEY (user_id) REFERENCES public.users(id);';
+      const adapted = adaptMigrationSqlForTestSchema(sql, 'app_test');
+      expect(adapted).toBe(
+        'ALTER TABLE user_sessions ADD CONSTRAINT fk FOREIGN KEY (user_id) REFERENCES "app_test".users(id);',
+      );
+    });
 
-      expect(parsedWorker.hostname).toBe(parsedTest.hostname);
-      expect(parsedWorker.port).toBe(parsedTest.port);
-      expect(parsedWorker.database).toBe(parsedTest.database);
-      expect(parsedWorker.database.toLowerCase()).toContain('test');
+    it('leaves statements without public references unchanged', () => {
+      const sql = 'CREATE TABLE "users" ("id" uuid PRIMARY KEY);';
+      const adapted = adaptMigrationSqlForTestSchema(sql, 'app_test');
+      expect(adapted).toBe(sql);
     });
   });
 });

@@ -3,7 +3,10 @@ import { defineConfig } from 'vitest/config';
 const isUnitOnly = process.argv.some(
   (arg) =>
     arg.includes('generateModule') ||
-    arg.includes('integrateModule'),
+    arg.includes('integrateModule') ||
+    arg.includes('dbGuard') ||
+    arg.includes('config') ||
+    arg.includes('envelope'),
 );
 
 export default defineConfig({

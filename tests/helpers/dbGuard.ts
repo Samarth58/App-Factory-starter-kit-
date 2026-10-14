@@ -1,6 +1,11 @@
 export type DbGuardResult = {
   valid: boolean;
-  testDatabaseName: string;
+  database: string;
+};
+
+export type SchemaGuardResult = {
+  valid: boolean;
+  schemaName: string;
 };
 
 export function parseDatabaseUrl(rawUrl: string): {
@@ -38,64 +43,99 @@ export function parseDatabaseUrl(rawUrl: string): {
   }
 }
 
-export function validateTestDatabaseUrl(
-  mainDbUrl: string | undefined,
-  testDbUrl: string | undefined,
-): DbGuardResult {
-  if (!testDbUrl || typeof testDbUrl !== 'string' || testDbUrl.trim() === '') {
-    throw new Error('TEST_DATABASE_URL is required and must be set');
+export function validateDatabaseUrl(dbUrl: string | undefined): DbGuardResult {
+  if (!dbUrl || typeof dbUrl !== 'string' || dbUrl.trim() === '') {
+    throw new Error('DATABASE_URL is required and must be set');
   }
 
-  const testParsed = parseDatabaseUrl(testDbUrl);
+  const parsed = parseDatabaseUrl(dbUrl);
+  return {
+    valid: true,
+    database: parsed.database,
+  };
+}
 
-  if (
-    !testParsed.database ||
-    !testParsed.database.toLowerCase().includes('test')
-  ) {
-    throw new Error('TEST_DATABASE_URL database name must contain "test"');
+export function validateTestSchema(schemaName: string | undefined): SchemaGuardResult {
+  if (!schemaName || typeof schemaName !== 'string' || schemaName.trim() === '') {
+    throw new Error('Test schema name is required and must be set');
   }
 
-  if (mainDbUrl && typeof mainDbUrl === 'string' && mainDbUrl.trim() !== '') {
-    const mainParsed = parseDatabaseUrl(mainDbUrl);
-    if (
-      mainParsed.hostname === testParsed.hostname &&
-      mainParsed.port === testParsed.port &&
-      mainParsed.database === testParsed.database
-    ) {
-      throw new Error(
-        'TEST_DATABASE_URL must not point to the same database as DATABASE_URL',
-      );
-    }
+  const normalized = schemaName.trim().toLowerCase();
+
+  if (normalized === 'public') {
+    throw new Error(
+      "Test schema cannot be 'public'. Tests are strictly forbidden from running against the public schema.",
+    );
+  }
+
+  if (!normalized.includes('test')) {
+    throw new Error('Test schema name must contain "test"');
+  }
+
+  if (!/^[a-z_][a-z0-9_]*$/i.test(normalized)) {
+    throw new Error('Test schema name must be a valid SQL identifier');
   }
 
   return {
     valid: true,
-    testDatabaseName: testParsed.database,
+    schemaName: normalized,
   };
 }
 
 export async function verifyTestDatabaseConnection(
-  pool: { query: (sql: string) => Promise<{ rows: Array<Record<string, unknown>> }> },
-  testDbUrl: string | undefined,
+  pool: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }> },
+  expectedSchema: string,
 ): Promise<void> {
-  if (!testDbUrl || typeof testDbUrl !== 'string') {
-    throw new Error('TEST_DATABASE_URL is not configured');
-  }
+  const { schemaName: validatedSchema } = validateTestSchema(expectedSchema);
 
-  const { database: expectedDbName } = parseDatabaseUrl(testDbUrl);
+  const res = await pool.query('SELECT current_schema() AS current_schema, current_database() AS current_db');
+  const actualSchema = ((res.rows[0]?.current_schema as string) || '').trim().toLowerCase();
 
-  const res = await pool.query('SELECT current_database() AS current_db');
-  const actualDbName = (res.rows[0]?.current_db as string) || '';
-
-  if (!actualDbName || !actualDbName.toLowerCase().includes('test')) {
+  if (!actualSchema || actualSchema === 'public') {
     throw new Error(
-      'Safety check failed: connected database name does not contain "test"',
+      "Safety check failed: connected to 'public' schema. Tests are strictly forbidden from running against public schema.",
     );
   }
 
-  if (actualDbName !== expectedDbName) {
+  if (!actualSchema.includes('test')) {
     throw new Error(
-      'Safety check failed: connected database does not match expected test database',
+      'Safety check failed: connected schema name does not contain "test"',
     );
   }
+
+  if (actualSchema !== validatedSchema) {
+    throw new Error(
+      `Safety check failed: connected schema "${actualSchema}" does not match expected test schema "${validatedSchema}"`,
+    );
+  }
+}
+
+export function verifyTableSchemasBeforeTruncation(
+  rows: Array<{ schemaname: string; tablename: string }>,
+  expectedSchema: string,
+): void {
+  const { schemaName: validatedSchema } = validateTestSchema(expectedSchema);
+
+  for (const row of rows) {
+    const rowSchema = (row.schemaname || '').trim().toLowerCase();
+    if (rowSchema === 'public') {
+      throw new Error(
+        `Safety check failed: cannot truncate table "${row.schemaname}"."${row.tablename}". Public schema tables can never be truncated in tests.`,
+      );
+    }
+
+    if (rowSchema !== validatedSchema) {
+      throw new Error(
+        `Safety check failed: cannot truncate table "${row.schemaname}"."${row.tablename}". Table schema does not match verified test schema "${validatedSchema}".`,
+      );
+    }
+  }
+}
+
+export function adaptMigrationSqlForTestSchema(
+  sqlContent: string,
+  testSchema: string,
+): string {
+  const { schemaName: validatedSchema } = validateTestSchema(testSchema);
+  return sqlContent.replace(/REFERENCES\s+("public"|public)\./gi, `REFERENCES "${validatedSchema}".`);
 }

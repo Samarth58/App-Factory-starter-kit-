@@ -154,13 +154,14 @@ The test suite enforces a zero-tolerance database safety boundary:
 
 ```mermaid
 graph LR
-    Vitest[Vitest Test Runner] --> preSetup[preSetup.ts]
-    preSetup --> globalSetup[globalSetup.ts: Run Migrations on TEST_DB]
+    Vitest[Vitest Test Runner] --> preSetup[preSetup.ts: Set DB_SCHEMA=app_test]
+    preSetup --> globalSetup[globalSetup.ts: Migrate into app_test schema]
     globalSetup --> dbGuard{dbGuard: verifyTestDatabaseConnection}
     
-    dbGuard -->|Pass: Name contains 'test' & != DATABASE_URL| Truncate[setup.ts: TRUNCATE user tables]
-    dbGuard -->|Fail: Matches DATABASE_URL or no 'test'| Abort[Hard Process Exit / Error]
+    dbGuard -->|Pass: Schema contains 'test' & != 'public'| VerifyTables[setup.ts: Verify Table Schemas]
+    dbGuard -->|Fail: Schema is 'public' or no 'test'| Abort[Hard Process Exit / Error]
     
+    VerifyTables --> Truncate[setup.ts: TRUNCATE app_test tables]
     Truncate --> RunTest[Run Integration Test]
 ```
 

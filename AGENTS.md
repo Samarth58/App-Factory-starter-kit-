@@ -66,14 +66,14 @@ JWT_SECRET=your-secret-key-change-this-to-a-long-random-string
 RATE_LIMIT_MAX=100
 RATE_LIMIT_WINDOW_MS=60000
 
-# Test Database Configuration (REQUIRED for Vitest)
-TEST_DATABASE_URL=postgresql://postgres:password@localhost:5432/app_test_db
+# Optional Test Schema Configuration (defaults to 'app_test')
+# TEST_DB_SCHEMA=app_test
 ```
 
 ### Safety Rules
 1. **Never commit `.env` or print secrets/tokens** in code, tests, or documentation.
 2. `DATABASE_URL` must point to a development or production database.
-3. `TEST_DATABASE_URL` is dedicated exclusively to test execution and must contain `test` in the database name.
+3. Tests execute exclusively in an isolated schema (default: `app_test`) within `DATABASE_URL` and never against `public`.
 
 ---
 
@@ -87,10 +87,10 @@ TEST_DATABASE_URL=postgresql://postgres:password@localhost:5432/app_test_db
   3. **DO NOT edit or delete existing migration files in `drizzle/`**.
   4. Run migrations against development: `npm run db:migrate`.
 
-### Test Database Isolation
-- Vitest tests automatically run against `TEST_DATABASE_URL`.
-- The safety guard in [`tests/helpers/dbGuard.ts`](file:///d:/App-factory(starter-kit)/tests/helpers/dbGuard.ts) strictly prevents running tests against `DATABASE_URL` or any database whose name does not contain `test`.
-- [`tests/setup.ts`](file:///d:/App-factory(starter-kit)/tests/setup.ts) truncates application tables (`examples`, `user_sessions`, `users`) before each test using `TRUNCATE ... RESTART IDENTITY CASCADE`. Migration tables (`__drizzle_migrations`) are never truncated.
+### Test Database & Schema Isolation
+- Vitest tests automatically run against the single `DATABASE_URL` using an isolated PostgreSQL schema (`app_test`).
+- The safety guard in [`tests/helpers/dbGuard.ts`](file:///d:/App-factory(starter-kit)/tests/helpers/dbGuard.ts) strictly prevents running tests against `public` schema or any schema whose name does not contain `test`.
+- Before truncation, [`tests/setup.ts`](file:///d:/App-factory(starter-kit)/tests/setup.ts) verifies the schema of every table. It truncates only application tables (`examples`, `categories`, `user_sessions`, `users`) inside `app_test` using `TRUNCATE TABLE "app_test"."..." RESTART IDENTITY CASCADE`. Tables in `public` and migration tables (`__drizzle_migrations`) are never truncated.
 
 ---
 
@@ -288,7 +288,7 @@ npm run lint
 # Format Code
 npm run format
 
-# Run Full Test Suite (requires TEST_DATABASE_URL)
+# Run Full Test Suite
 npm test
 
 # Run Specific Test File
@@ -304,7 +304,7 @@ npx vitest run tests/swagger.test.ts
 
 ## 12. Golden Rules for Agents
 
-- 🛑 **NEVER run destructive SQL commands or tests against `DATABASE_URL`**.
+- 🛑 **NEVER run destructive SQL commands or tests against the `public` schema**.
 - 🛑 **NEVER print secrets, API keys, passwords, or JWT tokens in responses or logs**.
 - 🛑 **NEVER delete or edit existing migration files in `drizzle/`**.
 - 🛑 **DO NOT modify completed modules unless explicitly tasked with a cross-cutting change**.
