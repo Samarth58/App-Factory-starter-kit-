@@ -1291,8 +1291,8 @@ import { ${names.pluralCamel}Routes } from '../modules/${names.kebab}/index.js';
 await app.register(${names.pluralCamel}Routes);
 `;
 
-  const testTruncationSnippet = `// In tests/setup.ts (line 22), add '${names.pluralCamel}' to the TRUNCATE query:
-await pool.query('TRUNCATE TABLE examples, ${names.pluralCamel}, user_sessions, users RESTART IDENTITY CASCADE;');`;
+  const testTruncationSnippet = `// In tests/setup.ts, add '${names.pluralSnake}' to the appTables list:
+const appTables = ['examples', 'categories', '${names.pluralSnake}', 'user_sessions', 'users'];`;
 
   return {
     files,
@@ -1324,10 +1324,18 @@ if (
         force = true;
       } else if (arg === '--dry-run') {
         dryRun = true;
+      } else if (arg === '--name' || arg === '-n') {
+        moduleName = args[++i];
+      } else if (arg.startsWith('--name=')) {
+        moduleName = arg.split('=')[1];
       } else if (arg === '--spec' || arg === '-s') {
         specPathArg = args[++i];
+      } else if (arg.startsWith('--spec=')) {
+        specPathArg = arg.split('=')[1];
       } else if (arg === '--fields' || arg === '-F') {
         fieldsArg = args[++i];
+      } else if (arg.startsWith('--fields=')) {
+        fieldsArg = arg.split('=')[1];
       } else if (!arg.startsWith('-') && !moduleName) {
         moduleName = arg;
       }
@@ -1364,8 +1372,14 @@ if (
     }
 
     console.log('\n======================================================================');
-    console.log(`📋 Manual Integration Checklist to Activate "${result.names.kebab}" Module`);
+    console.log(`⚡ Next Step: Automatically Integrate "${result.names.kebab}"`);
     console.log('======================================================================');
+    console.log('Run the automated integrator to wire up schema, routes, and test cleanup:');
+    console.log(`  npm run integrate:module -- --name ${result.names.kebab}`);
+    if (specPathArg) {
+      console.log(`  or: npm run integrate:module -- --spec ${specPathArg}`);
+    }
+    console.log('\n(Or follow the manual integration checklist below if preferred):');
 
     console.log('\nStep 1: Add Table & Required Imports to src/db/schema.ts:');
     console.log('---------------------------------------------------------');

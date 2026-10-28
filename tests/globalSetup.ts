@@ -13,12 +13,16 @@ import { initDnsFallback } from './helpers/dnsFallback.js';
 initDnsFallback();
 
 export async function setup() {
-  const mainUrl = process.env.DATABASE_URL;
+  const rawMainUrl = process.env.DATABASE_URL;
   const testSchema = process.env.TEST_DB_SCHEMA || 'app_test';
 
   // Enforce safety guards before any database action
-  validateDatabaseUrl(mainUrl);
+  validateDatabaseUrl(rawMainUrl);
   validateTestSchema(testSchema);
+  // If using Neon pooled connection, unpool it for test runner & search_path support
+  const mainUrl = rawMainUrl?.includes('-pooler.')
+    ? rawMainUrl.replace('-pooler.', '.')
+    : rawMainUrl;
 
   // Set DB_SCHEMA so any connection inherits the isolated schema
   process.env.DB_SCHEMA = testSchema;

@@ -674,11 +674,15 @@ npm run generate:module -- products --force
 ---
 
 ### Extension Recipe: Creating a New Domain Module
-1. **Generate Scaffolding**: Run `npm run generate:module -- <module-name> --fields <field_definitions>` or `npm run generate:module -- --spec <path_to_spec.json>`.
-2. **Add Table Definition**: Copy the generated Drizzle table snippet from terminal output and paste into `src/db/schema.ts`.
-3. **Generate Migration**: Run `npm run db:generate` and `npm run db:migrate`.
-4. **Register in API Router**: In `src/routes/apiV1.ts`, import and register `app.register(<module>Routes)`.
-5. **Run Module Tests**: `npx vitest run src/modules/<module-name>/<module>.test.ts`.
+
+> 📖 **Comprehensive Guide**: See [`docs/module-generator-guide.md`](./docs/module-generator-guide.md) for the complete end-to-end beginner guide and API testing walkthrough.
+
+1. **Create Specification**: Define your module in a JSON specification file (e.g. `specs/<module>.json`).
+2. **Generate Scaffolding**: Run `npm run generate:module -- --spec ./specs/<module>.json` (or with CLI flags `npm run generate:module -- <name> --fields ...`).
+3. **Integrate Automatically**: Run `npm run integrate:module -- --name <name>` (or `npm run integrate:module -- --spec ./specs/<module>.json`). This safely registers the Drizzle schema export, mounts `/api/v1` routes, and updates test cleanup with zero duplicate edits.
+4. **Generate & Review Migration**: Run `npm run db:generate` and inspect the generated SQL in `drizzle/`.
+5. **Apply Migration to Dev**: Run `npm run db:migrate`.
+6. **Verify Module Tests**: `npx vitest run src/modules/<module-name>/<module>.test.ts`.
 
 ---
 

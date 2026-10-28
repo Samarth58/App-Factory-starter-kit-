@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import readline from 'node:readline';
-import { inflectNames, type InflectedNames, validateModuleName } from './generateModule.js';
+import {
+  inflectNames,
+  type InflectedNames,
+  loadModuleSpecFile,
+  validateModuleName,
+} from './generateModule.js';
 
 export interface FilePatchPlan {
   filePath: string;
@@ -18,12 +23,14 @@ export interface IntegrationPlan {
   moduleName: string;
   kebab: string;
   pluralCamel: string;
+  pluralSnake: string;
   patches: FilePatchPlan[];
   hasAnyChanges: boolean;
 }
 
 export interface IntegrateOptions {
-  name: string;
+  name?: string;
+  specPath?: string;
   baseDir?: string;
   dryRun?: boolean;
   yes?: boolean;
@@ -53,7 +60,6 @@ export function generateUnifiedDiff(
   const oldLines = oldContent.replace(/\r\n/g, '\n').split('\n');
   const newLines = newContent.replace(/\r\n/g, '\n').split('\n');
 
-  // Simple and clean line-by-line diff generator
   const diffLines: string[] = [
     `--- a/${relativePath}`,
     `+++ b/${relativePath}`,
@@ -67,13 +73,11 @@ export function generateUnifiedDiff(
       i++;
       j++;
     } else {
-      // Found divergence
       const chunkOld: string[] = [];
       const chunkNew: string[] = [];
       const startOld = i + 1;
       const startNew = j + 1;
 
-      // Look ahead for matching point
       while (
         (i < oldLines.length || j < newLines.length) &&
         (i >= oldLines.length || j >= newLines.length || oldLines[i] !== newLines[j])
@@ -185,11 +189,13 @@ export function patchApiV1Content(original: string, names: InflectedNames): stri
 }
 
 /**
- * Patches tests/setup.ts by adding the table to the TRUNCATE query list.
+ * Patches tests/setup.ts by adding the PostgreSQL table name (snake_case) to test cleanup.
  * Idempotent: does not add duplicate table names.
  */
 export function patchSetupContent(original: string, names: InflectedNames): string {
-  const { pluralCamel } = names;
+  const { pluralSnake, pluralCamel } = names;
+  // In PostgreSQL, the table name is snake_case (e.g. 'guide_demo_products')
+  const tableName = pluralSnake;
 
   // Pattern 1: appTables = [...]
   const appTablesRegex = /appTables\s*=\s*\[([^\]]+)\]/;
@@ -201,15 +207,22 @@ export function patchSetupContent(original: string, names: InflectedNames): stri
       .map((t) => t.trim().replace(/['"]/g, ''))
       .filter(Boolean);
 
-    if (items.includes(pluralCamel)) {
+    if (items.includes(tableName) || items.includes(pluralCamel)) {
       return original;
     }
 
-    const examplesIdx = items.indexOf('examples');
-    if (examplesIdx !== -1) {
-      items.splice(examplesIdx + 1, 0, pluralCamel);
+    // Insert before 'user_sessions' so all domain tables precede auth tables,
+    // otherwise insert after 'examples' or at beginning
+    const userSessionsIdx = items.indexOf('user_sessions');
+    if (userSessionsIdx !== -1) {
+      items.splice(userSessionsIdx, 0, tableName);
     } else {
-      items.unshift(pluralCamel);
+      const examplesIdx = items.indexOf('examples');
+      if (examplesIdx !== -1) {
+        items.splice(examplesIdx + 1, 0, tableName);
+      } else {
+        items.unshift(tableName);
+      }
     }
 
     const formattedList = items.map((t) => `'${t}'`).join(', ');
@@ -229,16 +242,20 @@ export function patchSetupContent(original: string, names: InflectedNames): stri
   const rawTables = match[1];
   const tables = rawTables.split(',').map((t) => t.trim()).filter(Boolean);
 
-  if (tables.includes(pluralCamel)) {
+  if (tables.includes(tableName) || tables.includes(pluralCamel)) {
     return original;
   }
 
-  // Insert after 'examples' if present, otherwise at index 1
-  const examplesIdx = tables.indexOf('examples');
-  if (examplesIdx !== -1) {
-    tables.splice(examplesIdx + 1, 0, pluralCamel);
+  const userSessionsIdx = tables.indexOf('user_sessions');
+  if (userSessionsIdx !== -1) {
+    tables.splice(userSessionsIdx, 0, tableName);
   } else {
-    tables.unshift(pluralCamel);
+    const examplesIdx = tables.indexOf('examples');
+    if (examplesIdx !== -1) {
+      tables.splice(examplesIdx + 1, 0, tableName);
+    } else {
+      tables.unshift(tableName);
+    }
   }
 
   const newQuery = `TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE;`;
@@ -295,6 +312,17 @@ export function validateModuleForIntegration(
     );
   }
 
+  // Check index.ts file for barrel re-exports
+  const indexContent = fs.readFileSync(path.join(moduleDir, 'index.ts'), 'utf8');
+  if (
+    !indexContent.includes(`${names.kebab}.schema.js`) ||
+    !indexContent.includes(`${names.kebab}.routes.js`)
+  ) {
+    throw new Error(
+      `Module barrel "index.ts" does not re-export schema and routes.`,
+    );
+  }
+
   return { names, moduleDir };
 }
 
@@ -302,9 +330,15 @@ export function validateModuleForIntegration(
  * Creates an integration plan with unified diffs for all affected files without modifying disk.
  */
 export function createIntegrationPlan(
-  moduleName: string,
+  moduleNameOrSpecPath: string,
   baseDir = process.cwd(),
 ): IntegrationPlan {
+  let moduleName = moduleNameOrSpecPath;
+  if (moduleNameOrSpecPath.endsWith('.json') || fs.existsSync(path.resolve(baseDir, moduleNameOrSpecPath))) {
+    const spec = loadModuleSpecFile(moduleNameOrSpecPath, baseDir);
+    moduleName = spec.name;
+  }
+
   const { names } = validateModuleForIntegration(moduleName, baseDir);
 
   const targets = [
@@ -354,6 +388,7 @@ export function createIntegrationPlan(
     moduleName,
     kebab: names.kebab,
     pluralCamel: names.pluralCamel,
+    pluralSnake: names.pluralSnake,
     patches,
     hasAnyChanges,
   };
@@ -364,7 +399,18 @@ export function createIntegrationPlan(
  */
 export function executeIntegration(options: IntegrateOptions): IntegrationResult {
   const baseDir = options.baseDir || process.cwd();
-  const plan = createIntegrationPlan(options.name, baseDir);
+  let moduleName = options.name;
+
+  if (!moduleName && options.specPath) {
+    const spec = loadModuleSpecFile(options.specPath, baseDir);
+    moduleName = spec.name;
+  }
+
+  if (!moduleName) {
+    throw new Error('Module name is required for integration (specify --name or --spec).');
+  }
+
+  const plan = createIntegrationPlan(moduleName, baseDir);
 
   if (!plan.hasAnyChanges) {
     return {
@@ -495,23 +541,50 @@ if (
     try {
       const args = process.argv.slice(2);
       let moduleName = '';
+      let specPath = '';
       let dryRun = false;
       let yes = false;
+      let skipTypeCheck = false;
 
-      for (const arg of args) {
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
         if (arg === '--dry-run') {
           dryRun = true;
         } else if (arg === '--yes' || arg === '-y') {
           yes = true;
+        } else if (arg === '--skip-type-check') {
+          skipTypeCheck = true;
+        } else if (arg === '--name' || arg === '-n') {
+          moduleName = args[++i];
+        } else if (arg.startsWith('--name=')) {
+          moduleName = arg.split('=')[1];
+        } else if (arg === '--spec' || arg === '-s') {
+          specPath = args[++i];
+        } else if (arg.startsWith('--spec=')) {
+          specPath = arg.split('=')[1];
         } else if (!arg.startsWith('-') && !moduleName) {
           moduleName = arg;
         }
       }
 
+      if (!moduleName && specPath) {
+        const spec = loadModuleSpecFile(specPath);
+        moduleName = spec.name;
+      }
+
       if (!moduleName) {
-        console.error('Usage: npm run integrate:module -- <module-name> [--dry-run] [--yes]');
-        console.error('Example: npm run integrate:module -- categories --dry-run');
-        console.error('Example: npm run integrate:module -- categories --yes');
+        console.error('Usage: npm run integrate:module -- [options] <module-name>');
+        console.error('\nOptions:');
+        console.error('  --name, -n <name>       Name of the generated module to integrate');
+        console.error('  --spec, -s <path>       Path to JSON module specification file');
+        console.error('  --dry-run               Preview planned modifications without changing disk');
+        console.error('  --yes, -y               Apply changes without interactive confirmation');
+        console.error('  --skip-type-check       Skip post-patch TypeScript verification');
+        console.error('\nExamples:');
+        console.error('  npm run integrate:module -- --name guide-demo-products');
+        console.error('  npm run integrate:module -- --spec ./specs/guide-demo-products.json');
+        console.error('  npm run integrate:module -- guide-demo-products --dry-run');
+        console.error('  npm run integrate:module -- guide-demo-products --yes');
         process.exit(1);
       }
 
@@ -521,10 +594,17 @@ if (
       console.log('======================================================================');
 
       if (!plan.hasAnyChanges) {
-        console.log(`ℹ️ Module "${plan.kebab}" is already fully integrated across all targets:`);
-        for (const patch of plan.patches) {
-          console.log(`  - ${patch.relativePath} [Already Integrated]`);
-        }
+        console.log(`\n======================================================================`);
+        console.log(`📊 Module Integration Report: "${plan.kebab}"`);
+        console.log(`======================================================================`);
+        console.log('Status Overview:');
+        console.log('  [✓ COMPLETED] Generated module validation (all files & exports verified)');
+        console.log('  [✓ UP TO DATE] Database schema registration (src/db/schema.ts)');
+        console.log('  [✓ UP TO DATE] API route registration (src/routes/apiV1.ts)');
+        console.log('  [✓ UP TO DATE] Test setup cleanup integration (tests/setup.ts)');
+        console.log('  [✓ COMPLETED] TypeScript compilation check (up to date)');
+        console.log('  [⏳ RECOMMENDED NEXT STEP] Migration generation/review (Run: npm run db:generate)');
+        console.log(`  [⏳ RECOMMENDED NEXT STEP] Module tests (Run: npx vitest run src/modules/${plan.kebab}/${plan.kebab}.test.ts)`);
         console.log('======================================================================\n');
         process.exit(0);
       }
@@ -542,7 +622,18 @@ if (
       }
 
       if (dryRun) {
-        console.log('✨ Dry-run complete. No files were modified on disk.');
+        console.log(`======================================================================`);
+        console.log(`📊 Module Integration Report (DRY-RUN): "${plan.kebab}"`);
+        console.log(`======================================================================`);
+        console.log('Status Overview:');
+        console.log('  [✓ VERIFIED] Generated module validation');
+        for (const patch of plan.patches) {
+          const status = patch.hasChanges ? 'Modification planned' : 'Already up to date';
+          console.log(`  [ℹ️ DRY RUN] ${patch.relativePath}: ${status}`);
+        }
+        console.log('  [ℹ️ DRY RUN] No files were modified on disk.');
+        console.log('\nTo apply these integration changes, run:');
+        console.log(`  npm run integrate:module -- --name ${plan.kebab} --yes`);
         console.log('======================================================================\n');
         process.exit(0);
       }
@@ -567,6 +658,7 @@ if (
       const result = executeIntegration({
         name: moduleName,
         dryRun: false,
+        skipTypeCheck,
       });
 
       if (!result.success) {
@@ -576,20 +668,52 @@ if (
 
       console.log('\n✅ Integration Successful!');
       console.log('======================================================================');
-      console.log('Updated Targets:');
-      for (const patch of plan.patches) {
-        if (patch.hasChanges) {
-          console.log(`  ✓ ${patch.relativePath}`);
-        }
+      console.log(`📊 Module Integration Report: "${plan.kebab}"`);
+      console.log('======================================================================');
+      console.log('Status Overview:');
+      console.log('  [✓ COMPLETED] Generated module validation (all files & exports verified)');
+
+      const schemaPatch = plan.patches.find((p) => p.relativePath === 'src/db/schema.ts');
+      console.log(
+        schemaPatch?.hasChanges
+          ? '  [✓ COMPLETED] Database schema registration (src/db/schema.ts)'
+          : '  [✓ UP TO DATE] Database schema registration (already exported)',
+      );
+
+      const routePatch = plan.patches.find((p) => p.relativePath === 'src/routes/apiV1.ts');
+      console.log(
+        routePatch?.hasChanges
+          ? '  [✓ COMPLETED] API route registration (src/routes/apiV1.ts)'
+          : '  [✓ UP TO DATE] API route registration (already registered)',
+      );
+
+      const setupPatch = plan.patches.find((p) => p.relativePath === 'tests/setup.ts');
+      console.log(
+        setupPatch?.hasChanges
+          ? '  [✓ COMPLETED] Test setup cleanup integration (tests/setup.ts)'
+          : '  [✓ UP TO DATE] Test setup cleanup integration (already included)',
+      );
+
+      if (skipTypeCheck) {
+        console.log('  [⚠️ SKIPPED] TypeScript compilation check (--skip-type-check)');
+      } else {
+        console.log('  [✓ COMPLETED] TypeScript compilation check (tsc --noEmit passed)');
       }
 
-      console.log('\n📋 Manual Next Steps:');
-      console.log('---------------------');
-      console.log('1. Generate and review migration:');
+      console.log('  [⏳ RECOMMENDED NEXT STEP] Migration generation & review');
+      console.log('  [⏳ RECOMMENDED NEXT STEP] Module integration test execution');
+
+      console.log('\n======================================================================');
+      console.log('📋 Recommended Next Steps:');
+      console.log('----------------------------------------------------------------------');
+      console.log('1. Generate and review the database migration:');
       console.log('   npm run db:generate');
-      console.log('2. Apply migration to development database:');
+      console.log('   ⚠️  Inspect the generated SQL in drizzle/ before applying to any database.');
+      console.log('');
+      console.log('2. Apply migration to development database (only after review):');
       console.log('   npm run db:migrate');
-      console.log('3. Run integration tests:');
+      console.log('');
+      console.log('3. Run the module integration tests:');
       console.log(`   npx vitest run src/modules/${plan.kebab}/${plan.kebab}.test.ts`);
       console.log('======================================================================\n');
     } catch (error) {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execSync } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import {
@@ -61,6 +62,20 @@ export async function apiV1Routes(app: FastifyInstance): Promise<void> {
       expect(patchedAgain).toBe(patched);
     });
 
+    it('patchSetupContent adds snake_case table name for multi-word modules to appTables array', () => {
+      const demoNames = inflectNames('order-items');
+      const original = `const appTables = ['examples', 'categories', 'user_sessions', 'users'];`;
+      const patched = patchSetupContent(original, demoNames);
+
+      expect(patched).toBe(
+        `const appTables = ['examples', 'categories', 'order_items', 'user_sessions', 'users'];`,
+      );
+
+      // Idempotency check
+      const patchedAgain = patchSetupContent(patched, demoNames);
+      expect(patchedAgain).toBe(patched);
+    });
+
     it('patchSetupContent throws when TRUNCATE TABLE query is not found', () => {
       expect(() => patchSetupContent('const x = 1;', names)).toThrow(/Could not locate/);
     });
@@ -95,6 +110,66 @@ export async function apiV1Routes(app: FastifyInstance): Promise<void> {
     it('throws on invalid module name', () => {
       expect(() => validateModuleForIntegration('../evil')).toThrow(/path traversal/);
       expect(() => validateModuleForIntegration('admin')).toThrow(/reserved/);
+    });
+
+    it('throws when a required module file is missing', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-missing-file-'));
+      try {
+        generateModule({ name: 'test-item', fields: 'name:string', baseDir: tmpDir });
+        const routesFile = path.join(tmpDir, 'src', 'modules', 'test-item', 'test-item.routes.ts');
+        fs.unlinkSync(routesFile);
+
+        expect(() => validateModuleForIntegration('test-item', tmpDir)).toThrow(
+          /Required module file "test-item\.routes\.ts" is missing/,
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('throws when schema file does not export Drizzle table', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-missing-export-'));
+      try {
+        generateModule({ name: 'test-item', fields: 'name:string', baseDir: tmpDir });
+        const schemaFile = path.join(tmpDir, 'src', 'modules', 'test-item', 'test-item.schema.ts');
+        fs.writeFileSync(schemaFile, 'export const other = 1;', 'utf8');
+
+        expect(() => validateModuleForIntegration('test-item', tmpDir)).toThrow(
+          /does not export Drizzle table "testItems"/,
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('throws when routes file does not export route handler', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-missing-route-export-'));
+      try {
+        generateModule({ name: 'test-item', fields: 'name:string', baseDir: tmpDir });
+        const routesFile = path.join(tmpDir, 'src', 'modules', 'test-item', 'test-item.routes.ts');
+        fs.writeFileSync(routesFile, 'export const otherRoutes = 1;', 'utf8');
+
+        expect(() => validateModuleForIntegration('test-item', tmpDir)).toThrow(
+          /does not export route handler "testItemsRoutes"/,
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    it('throws when barrel index.ts does not re-export schema or routes', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-missing-barrel-'));
+      try {
+        generateModule({ name: 'test-item', fields: 'name:string', baseDir: tmpDir });
+        const indexFile = path.join(tmpDir, 'src', 'modules', 'test-item', 'index.ts');
+        fs.writeFileSync(indexFile, 'export const something = 1;', 'utf8');
+
+        expect(() => validateModuleForIntegration('test-item', tmpDir)).toThrow(
+          /does not re-export schema and routes/,
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -154,6 +229,38 @@ export async function apiV1Routes(app: FastifyInstance): Promise<void> {
       }
     });
 
+    it('createIntegrationPlan supports specification file path', () => {
+      const fixtureDir = createFixtureWorkspace();
+      try {
+        const specPath = path.join(fixtureDir, 'spec.json');
+        fs.writeFileSync(
+          specPath,
+          JSON.stringify({
+            name: 'categories',
+            fields: [{ name: 'name', type: 'string', required: true }],
+          }),
+        );
+
+        const plan = createIntegrationPlan(specPath, fixtureDir);
+        expect(plan.kebab).toBe('categories');
+        expect(plan.hasAnyChanges).toBe(true);
+      } finally {
+        fs.rmSync(fixtureDir, { recursive: true, force: true });
+      }
+    });
+
+    it('throws when an integration target file does not exist', () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'af-missing-target-'));
+      try {
+        generateModule({ name: 'test-item', fields: 'name:string', baseDir: tmpDir });
+        expect(() => createIntegrationPlan('test-item', tmpDir)).toThrow(
+          /Integration target file ".*" does not exist/,
+        );
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     it('executeIntegration in dry-run mode does not modify disk', () => {
       const fixtureDir = createFixtureWorkspace();
       try {
@@ -168,6 +275,32 @@ export async function apiV1Routes(app: FastifyInstance): Promise<void> {
         expect(result.success).toBe(true);
         const schemaAfter = fs.readFileSync(path.join(fixtureDir, 'src', 'db', 'schema.ts'), 'utf8');
         expect(schemaAfter).toBe(schemaBefore);
+      } finally {
+        fs.rmSync(fixtureDir, { recursive: true, force: true });
+      }
+    });
+
+    it('executeIntegration supports specPath option', () => {
+      const fixtureDir = createFixtureWorkspace();
+      try {
+        const specPath = path.join(fixtureDir, 'spec.json');
+        fs.writeFileSync(
+          specPath,
+          JSON.stringify({
+            name: 'categories',
+            fields: [{ name: 'name', type: 'string', required: true }],
+          }),
+        );
+
+        const result = executeIntegration({
+          specPath,
+          baseDir: fixtureDir,
+          dryRun: false,
+          skipTypeCheck: true,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.plan.kebab).toBe('categories');
       } finally {
         fs.rmSync(fixtureDir, { recursive: true, force: true });
       }
@@ -273,5 +406,24 @@ export async function apiV1Routes(app: FastifyInstance): Promise<void> {
       expect(result).toBe(false);
     });
   });
-});
 
+  describe('CLI Exit Codes & Safety', () => {
+    it('returns non-zero exit code when run via CLI with missing arguments', () => {
+      try {
+        execSync('npx tsx scripts/integrateModule.ts', { stdio: 'pipe' });
+        expect.unreachable('Should have failed');
+      } catch (err) {
+        expect((err as { status: number }).status).not.toBe(0);
+      }
+    });
+
+    it('returns non-zero exit code when run via CLI for non-existent module', () => {
+      try {
+        execSync('npx tsx scripts/integrateModule.ts non_existent_mod_xyz', { stdio: 'pipe' });
+        expect.unreachable('Should have failed');
+      } catch (err) {
+        expect((err as { status: number }).status).not.toBe(0);
+      }
+    });
+  });
+});
